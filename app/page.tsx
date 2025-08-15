@@ -9,9 +9,26 @@ type CartItem = Product & { quantity: number };
 export default function Home() {
   // สินค้าตัวอย่าง
   const products: Product[] = [
-    { id: 1, name: "Cookie Original", price: 120 },
-    { id: 2, name: "Dark Chocolate Cookie", price: 150 },
-    { id: 3, name: "Matcha White Chocolate Cookie", price: 150 },
+  { id: 1,  name: 'Matcha Macadamia',               price: 169 },
+  { id: 2,  name: 'Croissant Cookie',               price: 159 },
+  { id: 3,  name: 'Pistachio Dark Choc',            price: 159 },
+  { id: 4,  name: 'New York Signature',             price: 135 },
+  { id: 5,  name: 'Hazelnut Choc Chip',             price: 135 },
+  { id: 6,  name: 'Dark Choc 70%',                  price: 135 },
+  { id: 7,  name: 'Dark Cranberry',                 price: 135 },
+  { id: 8,  name: 'Dark Orange',                    price: 135 },
+  { id: 9,  name: 'Biscoff',                        price: 135 },
+  { id: 10, name: 'Peanut Butter',                  price: 135 },
+  { id: 11, name: 'DOUBLE Choc',                    price: 135 },
+  { id: 12, name: 'White Chocolate & Dark Choc',    price: 135 },
+  { id: 13, name: 'Choc Chip',                      price: 129 },
+  { id: 14, name: 'Walnut',                         price: 129 },
+  { id: 15, name: 'Red Velvet',                     price: 125 },
+  { id: 16, name: 'Lemon',                          price: 125 },
+  { id: 17, name: "S'more",                         price: 109 },
+  { id: 18, name: 'Salt Caramel',                   price: 109 },
+];
+
   ];
 
   const [cart, setCart] = useState<CartItem[]>([]);

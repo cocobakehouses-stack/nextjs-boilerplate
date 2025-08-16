@@ -17,7 +17,7 @@ export const products: Product[] = [
   { id: 9,  name: 'Biscoff',                        price: 135 },
   { id: 10, name: 'Peanut Butter',                  price: 135 },
   { id: 11, name: 'DOUBLE Choc',                    price: 135 },
-  { id: 12, name: 'White Chocolate & Dark Choc',    price: 135 },
+  { id: 12, name: 'White Choc & Dark Choc',         price: 135 },
   { id: 13, name: 'Choc Chip',                      price: 129 },
   { id: 14, name: 'Walnut',                         price: 129 },
   { id: 15, name: 'Red Velvet',                     price: 125 },

@@ -43,7 +43,6 @@ export default function Home() {
   // Core states
   const [cart, setCart] = useState<CartItem[]>([]);
   const [added, setAdded] = useState<Record<number, boolean>>({});
-  const [billNo, setBillNo] = useState<string>(''); // เว้นว่างได้ → backend จะออกเลขให้
   const [payment, setPayment] = useState<'cash' | 'promptpay' | null>(null);
 
   // Freebies
@@ -127,12 +126,11 @@ export default function Home() {
 
   const goConfirm = () => {
     if (!payment) return alert('กรุณาเลือกวิธีชำระเงิน');
-    // ไม่บังคับ billNo — เว้นว่างได้
     setStep('confirm');
   };
 
   const resetForNewBill = () => {
-    setCart([]); setAdded({}); setPayment(null); setBillNo(''); setFreebies([]); setLastSaved(null); setStep('cart');
+    setCart([]); setAdded({}); setPayment(null); setFreebies([]); setLastSaved(null); setStep('cart');
   };
 
   // --- API submit ---
@@ -141,7 +139,7 @@ export default function Home() {
 
     const itemsPayload: Line[] = cart.map((i) => ({ name: i.name, qty: i.quantity, price: i.price }));
 
-    const body: any = {
+    const body = {
       location,                     // FLAGSHIP | SINDHORN | CHIN3
       date: dateStr,                // "YYYY-MM-DD"
       time: /^\d{2}:\d{2}(:\d{2})?$/.test(timeStr) ? (timeStr.length === 5 ? `${timeStr}:00` : timeStr) : toTimeString(new Date()),
@@ -149,8 +147,7 @@ export default function Home() {
       items: itemsPayload,
       freebies,                     // [{name, qty, price}] หรือ []
       total: Number(netTotal.toFixed(2)),
-    };
-    if (billNo.trim()) body.billNo = billNo.trim(); // มีค่อยส่ง → ไม่มีให้ backend auto-generate
+    }; // ไม่ส่ง billNo → backend auto-generate
 
     try {
       setSubmitting(true);
@@ -164,13 +161,12 @@ export default function Home() {
         throw new Error(data?.error || 'Submit failed');
       }
 
-      // backend ส่ง { ok: true, saved: { billNo, date, time, payment, total, ... } }
       const saved = data?.saved ?? {};
       setLastSaved({
-        billNo: saved.billNo ?? body.billNo ?? '',
+        billNo: saved.billNo ?? '(auto)',
         date: saved.date ?? body.date,
         time: saved.time ?? body.time,
-        payment: saved.payment ?? body.payment,
+        payment: saved.payment ?? payment,
         total: Number(saved.total ?? body.total),
       });
       setStep('success');
@@ -311,20 +307,12 @@ export default function Home() {
           {/* SUMMARY */}
           {step === 'summary' && (
             <div className="grid gap-6 lg:grid-cols-2">
-              {/* Left: Bill + Items */}
+              {/* Left: Items */}
               <div className="bg-white rounded-xl p-4 border">
-                <div className="mb-4">
-                  <label className="block text-sm text-gray-600 mb-1">Bill No.</label>
-                  <input
-                    value={billNo}
-                    onChange={(e) => setBillNo(e.target.value)}
-                    placeholder="(เว้นว่างได้ — ระบบจะออก 01,02,… ให้เอง)"
-                    className="w-full rounded-lg border px-3 py-2"
-                  />
-                  <div className="mt-2 text-sm text-gray-600">
-                    <b>Time:</b> {timeStr} &nbsp; <b>Date:</b> {dateStr} &nbsp; <b>Payment:</b>{' '}
-                    <span className="text-gray-500">{payment ?? '— ยังไม่เลือก —'}</span>
-                  </div>
+                <div className="mb-2 text-sm text-gray-600">
+                  <b>Bill No.:</b> (ระบบจะออกให้) &nbsp; | &nbsp;
+                  <b>Time:</b> {timeStr} &nbsp; <b>Date:</b> {dateStr} &nbsp; <b>Payment:</b>{' '}
+                  <span className="text-gray-500">{payment ?? '— ยังไม่เลือก —'}</span>
                 </div>
 
                 <h3 className="font-semibold mb-2">รายการสินค้า</h3>
@@ -407,7 +395,7 @@ export default function Home() {
               <h2 className="text-2xl font-bold mb-4">ยืนยันส่งข้อมูล</h2>
 
               <div className="space-y-2 text-sm">
-                <div><b>BillNo:</b> {billNo || '(ระบบจะออกให้)'}</div>
+                <div><b>BillNo:</b> (ระบบจะออกให้)</div>
                 <div><b>Time:</b> {timeStr}</div>
                 <div><b>Date:</b> {dateStr}</div>
                 <div><b>Payment:</b> {payment}</div>
@@ -434,7 +422,7 @@ export default function Home() {
             <div className="bg-white rounded-xl p-6 border max-w-xl">
               <h2 className="text-2xl font-bold mb-4 text-green-700">บันทึกสำเร็จ 🎉</h2>
               <div className="space-y-2 text-sm">
-                <div><b>BillNo:</b> {lastSaved.billNo || '(auto)'}</div>
+                <div><b>BillNo:</b> {lastSaved.billNo}</div>
                 <div><b>Time:</b> {lastSaved.time}</div>
                 <div><b>Date:</b> {lastSaved.date}</div>
                 <div><b>Payment:</b> {lastSaved.payment}</div>

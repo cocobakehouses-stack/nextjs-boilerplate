@@ -1,31 +1,24 @@
 'use client';
 
-import { LOCATIONS, type LocationId } from '@/data/locations';
-import { useEffect, useState } from 'react';
+import { LOCATIONS, type LocationId } from '../../data/locations';
 
 type Props = {
-  value: string | null;
+  value: LocationId | null;
   onChange: (loc: LocationId) => void;
 };
 
 export default function LocationPicker({ value, onChange }: Props) {
-  const [open, setOpen] = useState<boolean>(false);
+  // ถ้าเลือกไว้แล้ว ไม่ต้องโชว์
+  if (value) return null;
 
-  useEffect(() => {
-    if (!value) setOpen(true);
-  }, [value]);
-
-  function choose(loc: LocationId) {
+  const choose = (loc: LocationId) => {
     localStorage.setItem('pos_location', loc);
     onChange(loc);
-    setOpen(false);
-  }
-
-  if (!open) return null;
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6">
-      <div className="bg-white w-full max-w-md rounded-2xl p-6">
+      <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
         <h2 className="text-2xl font-bold text-center mb-4">เลือกสถานที่ขาย</h2>
         <div className="grid gap-3">
           {LOCATIONS.map((l) => (

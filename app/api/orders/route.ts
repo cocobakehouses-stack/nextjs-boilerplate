@@ -21,12 +21,32 @@ const TZ = 'Asia/Bangkok';
 const ALLOWED_TABS = new Set(['FLAGSHIP', 'SINDHORN', 'CHIN3', 'ORDERS']);
 
 function getAuth() {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!;
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '';
   const keyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '';
-  const key = keyRaw.includes('\\n') ? keyRaw.replace(/\\n/g, '\n') : keyRaw;
+
+  // 1) ลบช่องว่างหัวท้าย (กันมี space เผลอใส่มา)
+  let key = keyRaw.trim();
+
+  // 2) ถ้ามาแบบ single-line ที่มี \\n ให้แปลงเป็น newline จริง
+  if (key.includes('\\n')) key = key.replace(/\\n/g, '\n');
+
+  // 3) ถ้าเผลอใส่เครื่องหมายคำพูดมาทั้งก้อน ให้ลอกออก
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1);
+  }
+
+  // 4) sanity check: โครง header/ footer ต้องเป๊ะ
+  if (!key.startsWith('-----BEGIN PRIVATE KEY-----') || !key.trim().endsWith('-----END PRIVATE KEY-----')) {
+    throw new Error('Invalid GOOGLE_SERVICE_ACCOUNT_KEY format');
+  }
+  if (!email.endsWith('.iam.gserviceaccount.com')) {
+    throw new Error('Invalid GOOGLE_SERVICE_ACCOUNT_EMAIL');
+  }
+
   const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
   return new google.auth.JWT(email, undefined, key, scopes);
 }
+
 
 function nowDateTimeBangkok() {
   const now = new Date();
@@ -174,8 +194,9 @@ export async function POST(req: Request) {
         tab: tabTitle,
       },
     });
-  } catch (e: any) {
-    console.error('POST /api/orders -> Sheets error', e?.message || e);
-    return NextResponse.json({ error: 'Sheets write failed' }, { status: 500 });
-  }
+} catch (e: any) {
+  console.error('POST /api/orders -> Sheets error', e?.message || e, e?.errors, e?.stack);
+  return NextResponse.json({ error: `Sheets write failed: ${e?.message || 'unknown'}` }, { status: 500 });
+}
+
 }

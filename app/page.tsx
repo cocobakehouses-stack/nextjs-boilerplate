@@ -16,20 +16,12 @@ type Step = 'cart' | 'summary' | 'confirm' | 'success';
 const TZ = 'Asia/Bangkok';
 
 function toDateString(d: Date) {
-  // YYYY-MM-DD
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d); // YYYY-MM-DD
 }
 function toTimeString(d: Date) {
-  // HH:MM:SS (24h)
   return new Intl.DateTimeFormat('th-TH', {
-    timeZone: TZ,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
-    .format(d)
-    .replace(/\./g, ':'); // กันบาง locale ใส่จุด
+    timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(d).replace(/\./g, ':'); // HH:MM:SS
 }
 
 function classNames(...xs: (string | false | null | undefined)[]) {
@@ -51,18 +43,18 @@ export default function Home() {
   // Core states
   const [cart, setCart] = useState<CartItem[]>([]);
   const [added, setAdded] = useState<Record<number, boolean>>({});
-  const [billNo, setBillNo] = useState<string>(''); // ต้องมีทุกบิล
+  const [billNo, setBillNo] = useState<string>(''); // เว้นว่างได้ → backend จะออกเลขให้
   const [payment, setPayment] = useState<'cash' | 'promptpay' | null>(null);
 
-  // Freebies: เลือกได้หลายชิ้นจาก products (หักราคาออกจากยอด)
+  // Freebies
   const [freebies, setFreebies] = useState<Line[]>([]);
   const [freebiePick, setFreebiePick] = useState<number>(products[0]?.id ?? 0);
 
-  // Date/Time (แยกช่องชัดเจน)
+  // Date/Time
   const [dateStr, setDateStr] = useState<string>(toDateString(new Date()));
   const [timeStr, setTimeStr] = useState<string>(toTimeString(new Date()));
 
-  // สำหรับแสดงผลหลังบันทึก
+  // For success screen
   const [isSubmitting, setSubmitting] = useState(false);
   const [lastSaved, setLastSaved] = useState<{
     billNo: string;
@@ -99,21 +91,9 @@ export default function Home() {
   };
 
   // --- Totals ---
-  const subtotal = useMemo(
-    () => cart.reduce((s, i) => s + i.price * i.quantity, 0),
-    [cart]
-  );
-
-  const freebiesValue = useMemo(
-    () => freebies.reduce((s, f) => s + f.price * f.qty, 0),
-    [freebies]
-  );
-
-  const totalQty = useMemo(
-    () => cart.reduce((s, i) => s + i.quantity, 0),
-    [cart]
-  );
-
+  const subtotal = useMemo(() => cart.reduce((s, i) => s + i.price * i.quantity, 0), [cart]);
+  const freebiesValue = useMemo(() => freebies.reduce((s, f) => s + f.price * f.qty, 0), [freebies]);
+  const totalQty = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
   const netTotal = useMemo(() => Math.max(0, subtotal - freebiesValue), [subtotal, freebiesValue]);
 
   // --- Freebies ops ---
@@ -130,29 +110,15 @@ export default function Home() {
       return [...prev, { name: prod.name, qty: 1, price: prod.price }];
     });
   };
-
   const changeFreebieQty = (name: string, qty: number) => {
-    setFreebies((prev) => {
-      if (qty <= 0) return prev.filter((f) => f.name !== name);
-      return prev.map((f) => (f.name === name ? { ...f, qty } : f));
-    });
+    setFreebies((prev) => (qty <= 0 ? prev.filter((f) => f.name !== name) : prev.map((f) => (f.name === name ? { ...f, qty } : f))));
   };
+  const removeFreebie = (name: string) => setFreebies((prev) => prev.filter((f) => f.name !== name));
 
-  const removeFreebie = (name: string) => {
-    setFreebies((prev) => prev.filter((f) => f.name !== name));
-  };
-
-  // --- Navigation guards ---
+  // --- Navigation ---
   const goSummary = () => {
-    if (!location) {
-      alert('กรุณาเลือกสถานที่ก่อนใช้งาน');
-      return;
-    }
-    if (cart.length === 0) {
-      alert('กรุณาเพิ่มสินค้าในตะกร้า');
-      return;
-    }
-    // fill date/time ตอนกดไปสรุปอีกครั้งเพื่อความสดใหม่
+    if (!location) return alert('กรุณาเลือกสถานที่ก่อนใช้งาน');
+    if (cart.length === 0) return alert('กรุณาเพิ่มสินค้าในตะกร้า');
     const now = new Date();
     setDateStr(toDateString(now));
     setTimeStr(toTimeString(now));
@@ -160,47 +126,31 @@ export default function Home() {
   };
 
   const goConfirm = () => {
-    if (!billNo.trim()) {
-      alert('กรุณาใส่ Bill No.');
-      return;
-    }
-    if (!payment) {
-      alert('กรุณาเลือกวิธีชำระเงิน');
-      return;
-    }
+    if (!payment) return alert('กรุณาเลือกวิธีชำระเงิน');
+    // ไม่บังคับ billNo — เว้นว่างได้
     setStep('confirm');
   };
 
   const resetForNewBill = () => {
-    setCart([]);
-    setAdded({});
-    setPayment(null);
-    setBillNo('');
-    setFreebies([]);
-    setLastSaved(null);
-    setStep('cart');
+    setCart([]); setAdded({}); setPayment(null); setBillNo(''); setFreebies([]); setLastSaved(null); setStep('cart');
   };
 
   // --- API submit ---
   const submitOrder = async () => {
     if (!location || !payment) return;
 
-    const itemsPayload: Line[] = cart.map((i) => ({
-      name: i.name,
-      qty: i.quantity,
-      price: i.price,
-    }));
+    const itemsPayload: Line[] = cart.map((i) => ({ name: i.name, qty: i.quantity, price: i.price }));
 
-    const body = {
-      location,                // FLAGSHIP | SINDHORN | CHIN3
-      billNo: billNo.trim(),   // "012"
-      date: dateStr,           // "YYYY-MM-DD"
+    const body: any = {
+      location,                     // FLAGSHIP | SINDHORN | CHIN3
+      date: dateStr,                // "YYYY-MM-DD"
       time: /^\d{2}:\d{2}(:\d{2})?$/.test(timeStr) ? (timeStr.length === 5 ? `${timeStr}:00` : timeStr) : toTimeString(new Date()),
-      payment,                 // 'cash' | 'promptpay'
+      payment,                      // 'cash' | 'promptpay'
       items: itemsPayload,
-      freebies,                // [{name, qty, price}]
+      freebies,                     // [{name, qty, price}] หรือ []
       total: Number(netTotal.toFixed(2)),
     };
+    if (billNo.trim()) body.billNo = billNo.trim(); // มีค่อยส่ง → ไม่มีให้ backend auto-generate
 
     try {
       setSubmitting(true);
@@ -209,16 +159,19 @@ export default function Home() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error || 'Submit failed');
+        throw new Error(data?.error || 'Submit failed');
       }
+
+      // backend ส่ง { ok: true, saved: { billNo, date, time, payment, total, ... } }
+      const saved = data?.saved ?? {};
       setLastSaved({
-        billNo: body.billNo,
-        date: body.date,
-        time: body.time,
-        payment: body.payment,
-        total: body.total,
+        billNo: saved.billNo ?? body.billNo ?? '',
+        date: saved.date ?? body.date,
+        time: saved.time ?? body.time,
+        payment: saved.payment ?? body.payment,
+        total: Number(saved.total ?? body.total),
       });
       setStep('success');
     } catch (e: any) {
@@ -239,23 +192,17 @@ export default function Home() {
             Location: <b>{location ?? '— เลือกก่อนใช้งาน —'}</b>
           </span>
           <button
-            onClick={() => {
-              localStorage.removeItem('pos_location');
-              setLocation(null);
-            }}
+            onClick={() => { localStorage.removeItem('pos_location'); setLocation(null); }}
             className="px-3 py-1 rounded-lg border hover:bg-white"
           >
             เปลี่ยนสถานที่
           </button>
-          {/* Show history */}
           {location && (
             <a
               className="px-3 py-1 rounded-lg border hover:bg-white"
               target="_blank"
               rel="noreferrer"
-              href={`/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(
-                dateStr
-              )}`}
+              href={`/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(dateStr)}`}
               title="Show history (open in new tab)"
             >
               Show history
@@ -268,7 +215,7 @@ export default function Home() {
       <LocationPicker value={location} onChange={(loc) => setLocation(loc)} />
       {!location ? null : (
         <>
-          {/* Stepper (simple) */}
+          {/* Stepper */}
           <div className="mb-4 flex gap-2 text-sm">
             {(['cart', 'summary', 'confirm', 'success'] as Step[]).map((s, i) => (
               <div key={s} className="flex items-center gap-2">
@@ -331,25 +278,10 @@ export default function Home() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => changeQty(i.id, i.quantity - 1)}
-                            className="px-2 py-1 border rounded"
-                          >
-                            -
-                          </button>
+                          <button onClick={() => changeQty(i.id, i.quantity - 1)} className="px-2 py-1 border rounded">-</button>
                           <span>{i.quantity}</span>
-                          <button
-                            onClick={() => changeQty(i.id, i.quantity + 1)}
-                            className="px-2 py-1 border rounded"
-                          >
-                            +
-                          </button>
-                          <button
-                            onClick={() => removeFromCart(i.id)}
-                            className="px-3 py-1 bg-red-500 text-white rounded"
-                          >
-                            Remove
-                          </button>
+                          <button onClick={() => changeQty(i.id, i.quantity + 1)} className="px-2 py-1 border rounded">+</button>
+                          <button onClick={() => removeFromCart(i.id)} className="px-3 py-1 bg-red-500 text-white rounded">Remove</button>
                         </div>
                       </div>
                     ))}
@@ -386,7 +318,7 @@ export default function Home() {
                   <input
                     value={billNo}
                     onChange={(e) => setBillNo(e.target.value)}
-                    placeholder="เช่น 001, 012, ..."
+                    placeholder="(เว้นว่างได้ — ระบบจะออก 01,02,… ให้เอง)"
                     className="w-full rounded-lg border px-3 py-2"
                   />
                   <div className="mt-2 text-sm text-gray-600">
@@ -402,9 +334,7 @@ export default function Home() {
                   <div className="space-y-2">
                     {cart.map((i) => (
                       <div key={i.id} className="flex justify-between text-sm border-b pb-1">
-                        <div>
-                          {i.name} × {i.quantity}
-                        </div>
+                        <div>{i.name} × {i.quantity}</div>
                         <div>{i.price * i.quantity} THB</div>
                       </div>
                     ))}
@@ -423,19 +353,13 @@ export default function Home() {
                 <div className="flex gap-2 mb-4">
                   <button
                     onClick={() => setPayment('cash')}
-                    className={classNames(
-                      'px-4 py-2 rounded-lg border',
-                      payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0] border-[#ac0000]' : 'hover:bg-gray-50'
-                    )}
+                    className={classNames('px-4 py-2 rounded-lg border', payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0] border-[#ac0000]' : 'hover:bg-gray-50')}
                   >
                     เงินสด
                   </button>
                   <button
                     onClick={() => setPayment('promptpay')}
-                    className={classNames(
-                      'px-4 py-2 rounded-lg border',
-                      payment === 'promptpay' ? 'bg-[#ac0000] text-[#fffff0] border-[#ac0000]' : 'hover:bg-gray-50'
-                    )}
+                    className={classNames('px-4 py-2 rounded-lg border', payment === 'promptpay' ? 'bg-[#ac0000] text-[#fffff0] border-[#ac0000]' : 'hover:bg-gray-50')}
                   >
                     พร้อมเพย์
                   </button>
@@ -443,15 +367,9 @@ export default function Home() {
 
                 <h3 className="font-semibold mb-2">ของแถม (Freebies)</h3>
                 <div className="flex gap-2 items-center">
-                  <select
-                    className="rounded-lg border px-3 py-2"
-                    value={freebiePick}
-                    onChange={(e) => setFreebiePick(Number(e.target.value))}
-                  >
+                  <select className="rounded-lg border px-3 py-2" value={freebiePick} onChange={(e) => setFreebiePick(Number(e.target.value))}>
                     {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.price} THB)
-                      </option>
+                      <option key={p.id} value={p.id}>{p.name} ({p.price} THB)</option>
                     ))}
                   </select>
                   <button onClick={addFreebie} className="px-3 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90">
@@ -463,26 +381,12 @@ export default function Home() {
                   <div className="mt-3 space-y-2">
                     {freebies.map((f) => (
                       <div key={f.name} className="flex items-center justify-between border-b pb-1">
-                        <div className="text-sm">
-                          {f.name} × {f.qty} <span className="text-gray-500">({f.price} THB/ชิ้น)</span>
-                        </div>
+                        <div className="text-sm">{f.name} × {f.qty} <span className="text-gray-500">({f.price} THB/ชิ้น)</span></div>
                         <div className="flex items-center gap-2">
-                          <button
-                            className="px-2 py-1 border rounded"
-                            onClick={() => changeFreebieQty(f.name, f.qty - 1)}
-                          >
-                            -
-                          </button>
+                          <button className="px-2 py-1 border rounded" onClick={() => changeFreebieQty(f.name, f.qty - 1)}>-</button>
                           <span>{f.qty}</span>
-                          <button
-                            className="px-2 py-1 border rounded"
-                            onClick={() => changeFreebieQty(f.name, f.qty + 1)}
-                          >
-                            +
-                          </button>
-                          <button className="px-3 py-1 bg-red-500 text-white rounded" onClick={() => removeFreebie(f.name)}>
-                            Remove
-                          </button>
+                          <button className="px-2 py-1 border rounded" onClick={() => changeFreebieQty(f.name, f.qty + 1)}>+</button>
+                          <button className="px-3 py-1 bg-red-500 text-white rounded" onClick={() => removeFreebie(f.name)}>Remove</button>
                         </div>
                       </div>
                     ))}
@@ -490,18 +394,8 @@ export default function Home() {
                 )}
 
                 <div className="mt-6 flex justify-between">
-                  <button
-                    onClick={() => setStep('cart')}
-                    className="px-4 py-2 rounded-lg border hover:bg-gray-50"
-                  >
-                    กลับไปแก้
-                  </button>
-                  <button
-                    onClick={goConfirm}
-                    className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90"
-                  >
-                    ยืนยัน
-                  </button>
+                  <button onClick={() => setStep('cart')} className="px-4 py-2 rounded-lg border hover:bg-gray-50">กลับไปแก้</button>
+                  <button onClick={goConfirm} className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90">ยืนยัน</button>
                 </div>
               </div>
             </div>
@@ -513,7 +407,7 @@ export default function Home() {
               <h2 className="text-2xl font-bold mb-4">ยืนยันส่งข้อมูล</h2>
 
               <div className="space-y-2 text-sm">
-                <div><b>BillNo:</b> {billNo}</div>
+                <div><b>BillNo:</b> {billNo || '(ระบบจะออกให้)'}</div>
                 <div><b>Time:</b> {timeStr}</div>
                 <div><b>Date:</b> {dateStr}</div>
                 <div><b>Payment:</b> {payment}</div>
@@ -521,19 +415,12 @@ export default function Home() {
               </div>
 
               <div className="mt-6 flex gap-2">
-                <button
-                  onClick={() => setStep('summary')}
-                  className="px-4 py-2 rounded-lg border hover:bg-gray-50"
-                  disabled={isSubmitting}
-                >
+                <button onClick={() => setStep('summary')} className="px-4 py-2 rounded-lg border hover:bg-gray-50" disabled={isSubmitting}>
                   กลับไปแก้
                 </button>
                 <button
                   onClick={submitOrder}
-                  className={classNames(
-                    'px-4 py-2 rounded-lg text-[#fffff0]',
-                    isSubmitting ? 'bg-gray-400' : 'bg-[#ac0000] hover:opacity-90'
-                  )}
+                  className={classNames('px-4 py-2 rounded-lg text-[#fffff0]', isSubmitting ? 'bg-gray-400' : 'bg-[#ac0000] hover:opacity-90')}
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? 'กำลังบันทึก…' : 'ยืนยันส่งไป Google Sheets'}
@@ -547,17 +434,14 @@ export default function Home() {
             <div className="bg-white rounded-xl p-6 border max-w-xl">
               <h2 className="text-2xl font-bold mb-4 text-green-700">บันทึกสำเร็จ 🎉</h2>
               <div className="space-y-2 text-sm">
-                <div><b>BillNo:</b> {lastSaved.billNo}</div>
+                <div><b>BillNo:</b> {lastSaved.billNo || '(auto)'}</div>
                 <div><b>Time:</b> {lastSaved.time}</div>
                 <div><b>Date:</b> {lastSaved.date}</div>
                 <div><b>Payment:</b> {lastSaved.payment}</div>
                 <div><b>Total:</b> {lastSaved.total} THB</div>
               </div>
               <div className="mt-6">
-                <button
-                  onClick={resetForNewBill}
-                  className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90"
-                >
+                <button onClick={resetForNewBill} className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90">
                   เริ่มบิลใหม่
                 </button>
               </div>

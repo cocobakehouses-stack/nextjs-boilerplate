@@ -2,27 +2,28 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 
-// ต้องใช้ Node runtime (ไม่ใช่ Edge) เพื่อให้ googleapis ใช้ได้
+// ใช้ Node runtime สำหรับ googleapis
 export const runtime = 'nodejs';
-// ป้องกันการ cache/prerender
+// กันไม่ให้โดน prerender/cache
 export const dynamic = 'force-dynamic';
 
 type Item = { name: string; qty: number; price: number };
 type Body = {
   location: string;                 // เช่น 'FRONT' | 'SINDHORN' | 'CHIN3'
-  billNo?: string;                  // ถ้ามีเลขบิลจากฝั่งเซิร์ฟเวอร์แล้ว ใส่มาด้วย (ไม่บังคับ)
+  billNo?: string;                  // เลขบิล (ไม่บังคับ)
   payment: 'cash' | 'promptpay';    // วิธีจ่าย
   items: Item[];                    // รายการสินค้า
   total: number;                    // ยอดรวม
 };
 
-// ฟอร์แมตวันที่-เวลาให้เป็นโซนไทยเสมอ
+// ฟอร์แมตเวลาเป็นโซนไทย
 function formatInBangkok(now: Date) {
   const tz = 'Asia/Bangkok';
   const date = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now); // YYYY-MM-DD
   const time = new Intl.DateTimeFormat('th-TH', {
-    timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false
+    timeZone: tz,
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
   }).format(now); // HH:MM:SS
   return { date, time };
 }
@@ -30,7 +31,6 @@ function formatInBangkok(now: Date) {
 function getAuth() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!;
   const keyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '';
-  // ถ้า key ใน ENV มี \n แบบ escape ให้แปลงเป็นบรรทัดจริง
   const key = keyRaw.includes('\\n') ? keyRaw.replace(/\\n/g, '\n') : keyRaw;
   const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
   return new google.auth.JWT(email, undefined, key, scopes);
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
-    const range = 'Orders!A:H'; // ต้องมีแท็บชื่อ Orders และคอลัมน์ A..H
+    const range = 'Orders!A:H'; // ต้องมีแท็บชื่อ "Orders"
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -60,7 +60,21 @@ export async function POST(req: Request) {
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [[
-          date,           // A: Date (YYYY-MM-DD)
-          time,           // B: Time (HH:MM:SS) Asia/Bangkok
-          location,       // C: Location
-          billNo ?? '',   // D: BillNo (ว่างได้ถ้ายังไม่มี)
+          date,                 // A: Date
+          time,                 // B: Time
+          location,             // C: Location
+          billNo ?? '',         // D: BillNo
+          itemsText,            // E: Items
+          String(totalQty),     // F: TotalQty
+          payment,              // G: Payment
+          Number(total).toFixed(2), // H: Total
+        ]],
+      },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error('POST /api/orders -> Sheets error', e?.message || e);
+    return NextResponse.json({ error: 'Sheets write failed' }, { status: 500 });
+  }
+}

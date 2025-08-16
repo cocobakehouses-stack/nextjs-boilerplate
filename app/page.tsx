@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { products } from "../data/products"; // ดึงข้อมูลสินค้ามาจากไฟล์ data/products.ts
+import { useEffect, useMemo, useState } from "react";
+import LocationPicker from "./components/LocationPicker";
+import type { LocationId } from "@/data/locations";
+import { products } from "../data/products"; // ดึงข้อมูลสินค้า
 
 // กำหนด type ของสินค้าและตะกร้า
 type Product = { id: number; name: string; price: number };

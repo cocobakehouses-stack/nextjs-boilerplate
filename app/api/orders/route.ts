@@ -5,38 +5,54 @@ import { google } from 'googleapis';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// ---------- Types ----------
 type Line = { name: string; qty: number; price: number };
 type Body = {
-  location: string;                 // เช่น 'FLAGSHIP' | 'SINDHORN' | 'CHIN3'
-  billNo?: string;                  // ถ้าไม่ส่งมา จะ auto-generate เป็น 01,02,... ต่อวัน/สาขา
-  date?: string;                    // 'YYYY-MM-DD' (ไม่ส่งมาก็ใช้เวลาปัจจุบัน Asia/Bangkok)
-  time?: string;                    // 'HH:MM' หรือ 'HH:MM:SS' (ไม่ส่งมาก็ใช้เวลาปัจจุบัน)
+  location: string;                 // 'FLAGSHIP' | 'SINDHORN' | 'CHIN3' (ต้องมีแท็บชื่อนี้)
+  billNo?: string;                  // ไม่ส่งมา -> ระบบออก 01,02,... ต่อวัน/สาขา
+  date?: string;                    // 'YYYY-MM-DD' (ไม่ส่งจะใช้เวลาปัจจุบัน Asia/Bangkok)
+  time?: string;                    // 'HH:MM' หรือ 'HH:MM:SS' (ไม่ส่งจะใช้เวลาปัจจุบัน)
   payment: 'cash' | 'promptpay';
-  items: Line[];                    // สินค้าทั้งหมด (รวมของแถมในจำนวนชิ้นด้วยก็ได้)
-  freebies?: Line[];                // ถ้าไม่มีของแถม ให้ส่ง [] หรือเว้นไว้
-  total: number;                    // ยอดสุทธิหลังหักของแถมแล้ว
+  items: Line[];                    // สินค้าทั้งหมดในบิล (ไม่นับของแถม)
+  freebies?: Line[];                // ของแถม (ถ้ามี)
+  total: number;                    // ยอดสุทธิ (หลังหักของแถมแล้ว)
 };
 
+// ---------- Consts ----------
 const TZ = 'Asia/Bangkok';
 const ALLOWED_TABS = new Set(['FLAGSHIP', 'SINDHORN', 'CHIN3', 'ORDERS']);
 
+// ---------- Auth (รองรับทั้ง JSON และ PEM เดี่ยว) ----------
 function getAuth() {
+  // 1) ถ้ามีทั้ง JSON ก้อนเดียว ใช้ทางนี้ (เสถียรสุด)
+  const rawJson = process.env.GOOGLE_CREDENTIALS_JSON;
+  if (rawJson) {
+    const creds = JSON.parse(rawJson);
+    if (!creds.client_email || !creds.private_key) {
+      throw new Error('Invalid GOOGLE_CREDENTIALS_JSON');
+    }
+    const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
+    return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes);
+  }
+
+  // 2) Fallback: ใช้ PEM เดี่ยวใน GOOGLE_SERVICE_ACCOUNT_KEY
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '';
-  const keyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '';
+  let key = (process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '').trim();
 
-  // 1) ลบช่องว่างหัวท้าย (กันมี space เผลอใส่มา)
-  let key = keyRaw.trim();
-
-  // 2) ถ้ามาแบบ single-line ที่มี \\n ให้แปลงเป็น newline จริง
+  // แปลง escape -> newline จริง
+  if (key.includes('\\r\\n')) key = key.replace(/\\r\\n/g, '\n');
   if (key.includes('\\n')) key = key.replace(/\\n/g, '\n');
 
-  // 3) ถ้าเผลอใส่เครื่องหมายคำพูดมาทั้งก้อน ให้ลอกออก
+  // กันกรณีวางแล้วมี " หรือ ' ครอบทั้งก้อน
   if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
     key = key.slice(1, -1);
   }
 
-  // 4) sanity check: โครง header/ footer ต้องเป๊ะ
-  if (!key.startsWith('-----BEGIN PRIVATE KEY-----') || !key.trim().endsWith('-----END PRIVATE KEY-----')) {
+  // ตัดช่องว่างหัวท้ายอีกครั้ง
+  key = key.trim();
+
+  // ตรวจโครงสร้างหัว-ท้าย
+  if (!key.startsWith('-----BEGIN PRIVATE KEY-----') || !key.includes('-----END PRIVATE KEY-----')) {
     throw new Error('Invalid GOOGLE_SERVICE_ACCOUNT_KEY format');
   }
   if (!email.endsWith('.iam.gserviceaccount.com')) {
@@ -47,13 +63,13 @@ function getAuth() {
   return new google.auth.JWT(email, undefined, key, scopes);
 }
 
-
+// ---------- Time helpers ----------
 function nowDateTimeBangkok() {
   const now = new Date();
   const date = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(now); // YYYY-MM-DD
   const time = new Intl.DateTimeFormat('th-TH', {
     timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).format(now).replace(/\./g, ':');
+  }).format(now).replace(/\./g, ':'); // HH:MM:SS
   return { date, time };
 }
 
@@ -69,17 +85,19 @@ function pad2(n: number) {
   return String(n).padStart(2, '0');
 }
 
+// ---------- Sheets helpers ----------
 async function ensureSheetExists(sheets: any, spreadsheetId: string, title: string) {
   const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
   const exists = (meta.data.sheets ?? []).some((s: any) => s.properties?.title === title);
   if (exists) return;
 
+  // สร้างแท็บใหม่
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: { requests: [{ addSheet: { properties: { title } } }] },
   });
 
-  // ใส่ header ตามรูปแบบเดิม
+  // ใส่ header แถวแรก
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${title}!A1:H1`,
@@ -90,7 +108,7 @@ async function ensureSheetExists(sheets: any, spreadsheetId: string, title: stri
   });
 }
 
-// อ่านบิลของวันนั้นในแท็บ location แล้วให้เลขถัดไป (01,02,...)
+// อ่านบิลของ "วันนั้น" ในแท็บ location แล้วให้เลขถัดไป (01,02,...)
 async function getNextBillNoForDate(
   sheets: any,
   spreadsheetId: string,
@@ -103,20 +121,21 @@ async function getNextBillNoForDate(
     range: `${title}!A:C`,
   });
   const rows = res.data.values || [];
-  const dataRows = rows.slice(1); // skip header
+  const dataRows = rows.slice(1); // ข้าม header
 
   let maxNo = 0;
   for (const r of dataRows) {
-    const rowDate = r[0]; // A: Date
-    const bill = (r[2] || '').toString().trim(); // C: BillNo
+    const rowDate = r[0];               // A: Date
+    const bill = (r[2] || '').trim();   // C: BillNo
     if (rowDate === date && bill) {
-      const num = parseInt(bill, 10); // ถ้าเก็บ 01/02 ก็ parse ได้
+      const num = parseInt(bill, 10);   // "01" ก็ parse ได้เป็น 1
       if (!isNaN(num) && num > maxNo) maxNo = num;
     }
   }
   return pad2(maxNo + 1);
 }
 
+// ---------- Route ----------
 export async function POST(req: Request) {
   try {
     const {
@@ -139,8 +158,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid location/tab' }, { status: 400 });
     }
 
-    const sheets = google.sheets({ version: 'v4', auth: getAuth() });
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
+    if (!spreadsheetId) {
+      return NextResponse.json({ error: 'GOOGLE_SHEETS_ID is missing' }, { status: 500 });
+    }
+
+    const auth = getAuth(); // ← จุดที่ต้องได้ key/JSON ถูกต้อง
+    const sheets = google.sheets({ version: 'v4', auth });
 
     // วันที่/เวลา (ถ้าไม่ส่งมา ใช้ปัจจุบันโซนไทย)
     let useDate = date;
@@ -158,13 +182,15 @@ export async function POST(req: Request) {
     // ถ้าไม่ส่ง billNo มา → หาเลขล่าสุดของวันนั้นในแท็บนี้ แล้ว +1 (01,02,...)
     let useBillNo = (billNo ?? '').trim();
     if (!useBillNo) {
-      useBillNo = await getNextBillNoForDate(sheets, spreadsheetId, tabTitle, useDate);
+      useBillNo = await getNextBillNoForDate(sheets, spreadsheetId, tabTitle, useDate!);
     }
 
+    // เตรียมข้อมูลลงชีต
     const itemsText = items.map(i => `${i.name} x${i.qty}`).join('; ');
     const freebiesText = (freebies ?? []).map(f => `${f.name} x${f.qty}`).join('; ');
-    const totalQty = items.reduce((s, i) => s + (i.qty || 0), 0);
+    const totalQty = items.reduce((s, i) => s + (i.qty || 0), 0); // ไม่นับของแถม
 
+    // Append แถวใหม่
     await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: `${tabTitle}!A:H`,
@@ -173,12 +199,12 @@ export async function POST(req: Request) {
         values: [[
           useDate,                    // A: Date
           useTime,                    // B: Time
-          useBillNo,                  // C: BillNo (รีเซ็ตแต่ละวัน)
+          useBillNo,                  // C: BillNo (รีเซ็ตทุกวันในแต่ละสาขา)
           itemsText,                  // D: Items
-          freebiesText,               // E: Freebies (ว่างได้)
-          String(totalQty),           // F: TotalQty (รวมของแถมด้วย)
+          freebiesText,               // E: Freebies
+          String(totalQty),           // F: TotalQty (ไม่รวมของแถม)
           payment,                    // G: Payment
-          Number(total).toFixed(2),   // H: Total (หลังหักของแถม)
+          Number(total).toFixed(2),   // H: Total (หลังหักของแถมแล้ว)
         ]],
       },
     });
@@ -194,9 +220,9 @@ export async function POST(req: Request) {
         tab: tabTitle,
       },
     });
-} catch (e: any) {
-  console.error('POST /api/orders -> Sheets error', e?.message || e, e?.errors, e?.stack);
-  return NextResponse.json({ error: `Sheets write failed: ${e?.message || 'unknown'}` }, { status: 500 });
-}
-
+  } catch (e: any) {
+    // Log ละเอียดเพื่อไล่ปัญหา ENV/Key
+    console.error('POST /api/orders -> Sheets error', e?.message || e, e?.errors, e?.stack);
+    return NextResponse.json({ error: `Sheets write failed: ${e?.message || 'unknown'}` }, { status: 500 });
+  }
 }

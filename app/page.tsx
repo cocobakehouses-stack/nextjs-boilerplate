@@ -12,6 +12,9 @@ type CartItem = Product & { quantity: number };
 export default function Home() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [addedItems, setAddedItems] = useState<Record<number, boolean>>({});
+  
+  // ✅ เพิ่ม state สำหรับ location
+  const [location, setLocation] = useState<LocationId | null>(null);
 
   const addToCart = (product: Product) => {
     const existingItem = cart.find((item) => item.id === product.id);
@@ -59,74 +62,90 @@ export default function Home() {
     <main className="p-8">
       <h1 className="text-3xl font-bold mb-6">Coco Bakehouse</h1>
 
-      {/* สินค้า */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {products.map((product) => (
-          <div
-            key={product.id}
-            className="border rounded-lg p-4 flex flex-col items-center"
-          >
-            <h2 className="text-lg font-semibold">{product.name}</h2>
-            <p className="text-gray-600">{product.price} THB</p>
-            <button
-              onClick={() => addToCart(product)}
-              className={`mt-2 px-4 py-2 rounded text-white ${
-                addedItems[product.id] ? "bg-green-500" : "bg-blue-500"
-              }`}
-            >
-              {addedItems[product.id] ? "Added!" : "Add to Cart"}
-            </button>
-          </div>
-        ))}
-      </div>
+      {/* ✅ ให้ผู้ใช้เลือก Location ก่อน */}
+      {!location ? (
+        <div className="mb-6">
+          <h2 className="text-xl font-semibold mb-2">เลือกสถานที่</h2>
+          <LocationPicker onSelect={(loc) => setLocation(loc)} />
+        </div>
+      ) : (
+        <>
+          <p className="mb-4">📍 Location: {location}</p>
 
-      {/* ตะกร้าสินค้า */}
-      <div className="mt-8">
-        <h2 className="text-2xl font-bold mb-4">Cart</h2>
-        {cart.length === 0 ? (
-          <p>Cart is empty</p>
-        ) : (
-          <div className="space-y-4">
-            {cart.map((item) => (
+          {/* สินค้า */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {products.map((product) => (
               <div
-                key={item.id}
-                className="flex justify-between items-center border-b pb-2"
+                key={product.id}
+                className="border rounded-lg p-4 flex flex-col items-center"
               >
-                <div>
-                  <h3 className="font-semibold">{item.name}</h3>
-                  <p>
-                    {item.price} THB x {item.quantity}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                    className="px-2 py-1 border rounded"
-                  >
-                    -
-                  </button>
-                  <span>{item.quantity}</span>
-                  <button
-                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                    className="px-2 py-1 border rounded"
-                  >
-                    +
-                  </button>
-                  <button
-                    onClick={() => removeFromCart(item.id)}
-                    className="px-3 py-1 bg-red-500 text-white rounded"
-                  >
-                    Remove
-                  </button>
-                </div>
+                <h2 className="text-lg font-semibold">{product.name}</h2>
+                <p className="text-gray-600">{product.price} THB</p>
+                <button
+                  onClick={() => addToCart(product)}
+                  className={`mt-2 px-4 py-2 rounded text-white ${
+                    addedItems[product.id] ? "bg-green-500" : "bg-blue-500"
+                  }`}
+                >
+                  {addedItems[product.id] ? "Added!" : "Add to Cart"}
+                </button>
               </div>
             ))}
-            <div className="text-right font-bold">
-              Total: {totalPrice} THB
-            </div>
           </div>
-        )}
-      </div>
+
+          {/* ตะกร้าสินค้า */}
+          <div className="mt-8">
+            <h2 className="text-2xl font-bold mb-4">Cart</h2>
+            {cart.length === 0 ? (
+              <p>Cart is empty</p>
+            ) : (
+              <div className="space-y-4">
+                {cart.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex justify-between items-center border-b pb-2"
+                  >
+                    <div>
+                      <h3 className="font-semibold">{item.name}</h3>
+                      <p>
+                        {item.price} THB x {item.quantity}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          updateQuantity(item.id, item.quantity - 1)
+                        }
+                        className="px-2 py-1 border rounded"
+                      >
+                        -
+                      </button>
+                      <span>{item.quantity}</span>
+                      <button
+                        onClick={() =>
+                          updateQuantity(item.id, item.quantity + 1)
+                        }
+                        className="px-2 py-1 border rounded"
+                      >
+                        +
+                      </button>
+                      <button
+                        onClick={() => removeFromCart(item.id)}
+                        className="px-3 py-1 bg-red-500 text-white rounded"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="text-right font-bold">
+                  Total: {totalPrice} THB
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </main>
   );
 }

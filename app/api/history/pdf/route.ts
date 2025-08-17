@@ -6,8 +6,6 @@ import PDFDocument from 'pdfkit';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// ❌ เดิม: function docToBuffer(doc: PDFDocument): Promise<Buffer>
-// ✅ ใหม่:
 function docToBuffer(doc: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -31,8 +29,8 @@ export async function GET(req: Request) {
     const { rows, totals } = await fetchHistory(spreadsheetId, location, date);
 
     const doc = new PDFDocument({ size: 'A4', margin: 40 });
-    // ... (ที่เหลือเหมือนเดิม)
-    // header
+
+    // Header
     doc.fontSize(16).text(`Coco Bakehouse – End of Day`, { align: 'left' });
     doc.moveDown(0.3);
     doc.fontSize(12).text(`Location: ${location}    Date: ${date}`);
@@ -69,10 +67,13 @@ export async function GET(req: Request) {
       .map(([k, v]) => `${k}: ${v.toFixed(2)} THB`).join(' | ');
     if (payments) doc.text(`By Payment → ${payments}`);
 
+    // สร้าง buffer แล้วห่อเป็น Blob เพื่อให้เข้ากับ BodyInit
     doc.end();
     const buf = await docToBuffer(doc);
     const fileName = `EOD_${location}_${date}.pdf`;
-    return new NextResponse(buf, {
+
+    const blob = new Blob([buf], { type: 'application/pdf' });
+    return new NextResponse(blob, {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${fileName}"`,

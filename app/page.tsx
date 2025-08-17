@@ -8,6 +8,12 @@ import { LOCATIONS as FALLBACK_LOCATIONS } from './data/locations';
 type LocationRow = { id: string; label: string };
 type NewLocState = { id: string; label: string };
 
+// แปลง fallback ให้เป็น array ที่ “mutable” ก่อน (กัน readonly error)
+const FALLBACK_MUTABLE: LocationRow[] = FALLBACK_LOCATIONS.map(l => ({
+  id: String(l.id),
+  label: l.label,
+}));
+
 export default function Home() {
   const router = useRouter();
 
@@ -21,21 +27,23 @@ export default function Home() {
   // ---- โหลดรายการสาขา (มี fallback) ----
   const [locs, setLocs] = useState<LocationRow[]>([]);
   const [loadingLocs, setLoadingLocs] = useState(true);
-  
+
   const loadLocations = async () => {
     try {
       setLoadingLocs(true);
       const res = await fetch('/api/locations', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const apiList: LocationRow[] = data?.locations || [];
-      setLocs(FALLBACK_LOCATIONS.map(l => ({ id: l.id, label: l.label })));
+      setLocs(apiList.length > 0 ? apiList : FALLBACK_MUTABLE);
     } catch {
-      setLocs(FALLBACK_LOCATIONS);
+      setLocs(FALLBACK_MUTABLE);
     } finally {
       setLoadingLocs(false);
     }
   };
-  useEffect(() => { loadLocations(); }, []);
+  useEffect(() => {
+    loadLocations();
+  }, []);
 
   // ---- เลือกสาขา ----
   const choose = (loc: string) => {
@@ -50,19 +58,26 @@ export default function Home() {
   const [busyAdd, setBusyAdd] = useState(false);
 
   const addLocation = async () => {
-    if (!adding.id.trim() || !adding.label.trim()) return;
+    const id = adding.id.trim().toUpperCase();
+    const label = adding.label.trim();
+    if (!id || !label) return;
+
+    // ตรวจรูปแบบ ID อย่างหยาบๆ: A–Z, 0–9, _
+    if (!/^[A-Z0-9_]+$/.test(id)) {
+      alert('ID ต้องเป็น A–Z, 0–9, _ และห้ามมีเว้นวรรค');
+      return;
+    }
+
     try {
       setBusyAdd(true);
       const res = await fetch('/api/locations', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: adding.id.trim().toUpperCase(),
-          label: adding.label.trim(),
-        }),
+        body: JSON.stringify({ id, label }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Add failed');
+
       setAdding({ id: '', label: '' });
       await loadLocations();
       alert('เพิ่มสถานที่สำเร็จ และสร้างแท็บใน Google Sheets แล้ว');
@@ -81,10 +96,7 @@ export default function Home() {
         {/* --------- เลือกสาขา --------- */}
         <div className="flex items-end justify-between gap-3 mb-3">
           <p className="text-gray-700">เลือกสาขาก่อนเริ่มทำรายการ</p>
-          <button
-            onClick={loadLocations}
-            className="px-3 py-1 rounded-lg border bg-white text-sm"
-          >
+          <button onClick={loadLocations} className="px-3 py-1 rounded-lg border bg-white text-sm">
             โหลดรายการอีกครั้ง
           </button>
         </div>
@@ -116,18 +128,13 @@ export default function Home() {
             <span className="text-sm">
               สาขาปัจจุบัน: <b>{selected}</b>
             </span>
-            <button
-              className="px-3 py-1 rounded-lg border bg-white"
-              onClick={() => router.push('/pos')}
-            >
+            <button className="px-3 py-1 rounded-lg border bg-white" onClick={() => router.push('/pos')}>
               เข้า POS
             </button>
             <button
               className="px-3 py-1 rounded-lg border bg-white"
               onClick={() =>
-                router.push(
-                  `/history?location=${encodeURIComponent(selected)}&date=${todayStr}`
-                )
+                router.push(`/history?location=${encodeURIComponent(selected)}&date=${todayStr}`)
               }
             >
               ดูประวัติวันนี้
@@ -151,8 +158,7 @@ export default function Home() {
         <div className="rounded-xl border bg-white p-4">
           <div className="font-semibold mb-2">เพิ่มสถานที่ใหม่</div>
           <p className="text-sm text-gray-600 mb-3">
-            ระบบจะเพิ่มรายการลงแท็บ <b>Locations</b> และสร้างแท็บสาขาใหม่ (พร้อมหัวคอลัมน์)
-            ให้อัตโนมัติ
+            ระบบจะเพิ่มรายการลงแท็บ <b>Locations</b> และสร้างแท็บสาขาใหม่ (พร้อมหัวคอลัมน์) ให้อัตโนมัติ
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -166,15 +172,11 @@ export default function Home() {
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">
-                ID อังกฤษ (A–Z, 0–9, _ ไม่มีเว้นวรรค)
-              </label>
+              <label className="block text-sm text-gray-600">ID อังกฤษ (A–Z, 0–9, _ ไม่มีเว้นวรรค)</label>
               <input
                 className="w-full rounded border px-3 py-2 uppercase"
                 value={adding.id}
-                onChange={(e) =>
-                  setAdding((s) => ({ ...s, id: e.target.value.toUpperCase() }))
-                }
+                onChange={(e) => setAdding((s) => ({ ...s, id: e.target.value.toUpperCase() }))}
                 placeholder="เช่น FLAGSHIP / SINDHORN / CHIN3"
               />
             </div>

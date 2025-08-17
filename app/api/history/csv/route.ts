@@ -1,6 +1,6 @@
 // app/api/history/csv/route.ts
 import { NextResponse } from 'next/server';
-import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '@/app/lib/sheets';
+import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

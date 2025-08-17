@@ -3,52 +3,49 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { LOCATIONS as FALLBACK_LOCATIONS } from './data/locations';
 
-// ใช้ string ก็พอสำหรับหน้า Home (ไม่ผูกกับ type ภายนอก)
 type LocationRow = { id: string; label: string };
 type NewLocState = { id: string; label: string };
 
 export default function Home() {
   const router = useRouter();
 
-  // สาขาที่เลือกไว้ (อ่านจาก localStorage)
+  // ---- สาขาที่เลือกไว้ (จาก localStorage) ----
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => {
     const saved = (localStorage.getItem('pos_location') as string | null) || null;
     if (saved) setSelected(saved);
   }, []);
 
-  // รายการสาขาแบบไดนามิกจาก API
+  // ---- โหลดรายการสาขา (มี fallback) ----
   const [locs, setLocs] = useState<LocationRow[]>([]);
-  const [loadingLocs, setLoadingLocs] = useState<boolean>(true);
+  const [loadingLocs, setLoadingLocs] = useState(true);
 
   const loadLocations = async () => {
     try {
       setLoadingLocs(true);
       const res = await fetch('/api/locations', { cache: 'no-store' });
-      const data = await res.json();
-      setLocs(data?.locations || []);
+      const data = await res.json().catch(() => ({}));
+      const apiList: LocationRow[] = data?.locations || [];
+      setLocs(apiList.length > 0 ? apiList : FALLBACK_LOCATIONS);
     } catch {
-      // กรณีพลาด ให้ลิสต์ว่างไว้ก่อน
-      setLocs([]);
+      setLocs(FALLBACK_LOCATIONS);
     } finally {
       setLoadingLocs(false);
     }
   };
+  useEffect(() => { loadLocations(); }, []);
 
-  useEffect(() => {
-    loadLocations();
-  }, []);
-
+  // ---- เลือกสาขา ----
   const choose = (loc: string) => {
     localStorage.setItem('pos_location', loc);
     setSelected(loc);
-    router.push('/pos'); // ไปหน้า POS ทันที
+    router.push('/pos');
   };
-
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  // --- ฟอร์มเพิ่มสาขาใหม่ ---
+  // ---- ฟอร์มเพิ่มสาขาใหม่ ----
   const [adding, setAdding] = useState<NewLocState>({ id: '', label: '' });
   const [busyAdd, setBusyAdd] = useState(false);
 
@@ -60,14 +57,14 @@ export default function Home() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          id: adding.id.trim().toUpperCase(), // A–Z,0–9,_
-          label: adding.label.trim(),         // ชื่อไทย
+          id: adding.id.trim().toUpperCase(),
+          label: adding.label.trim(),
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Add failed');
-      await loadLocations();               // รีโหลดลิสต์
-      setAdding({ id: '', label: '' });    // เคลียร์ฟอร์ม
+      setAdding({ id: '', label: '' });
+      await loadLocations();
       alert('เพิ่มสถานที่สำเร็จ และสร้างแท็บใน Google Sheets แล้ว');
     } catch (e: any) {
       alert(e?.message || 'Add failed');
@@ -80,14 +77,23 @@ export default function Home() {
     <main className="min-h-screen bg-[#fffff0] p-6">
       <div className="max-w-3xl mx-auto">
         <h1 className="text-3xl font-bold mb-2">Coco Bakehouse POS</h1>
-        <p className="text-gray-700 mb-6">เลือกสาขาก่อนเริ่มทำรายการ</p>
 
-        {/* รายการสาขา */}
+        {/* --------- เลือกสาขา --------- */}
+        <div className="flex items-end justify-between gap-3 mb-3">
+          <p className="text-gray-700">เลือกสาขาก่อนเริ่มทำรายการ</p>
+          <button
+            onClick={loadLocations}
+            className="px-3 py-1 rounded-lg border bg-white text-sm"
+          >
+            โหลดรายการอีกครั้ง
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {loadingLocs ? (
             <div className="col-span-3 text-gray-600">Loading locations…</div>
           ) : locs.length === 0 ? (
-            <div className="col-span-3 text-gray-600">ยังไม่มีสาขา — โปรดเพิ่มสาขาใหม่ด้านล่าง</div>
+            <div className="col-span-3 text-gray-600">ยังไม่มีสาขา</div>
           ) : (
             locs.map((l) => (
               <button
@@ -104,7 +110,7 @@ export default function Home() {
           )}
         </div>
 
-        {/* Action bar ของสาขาที่เลือกไว้ (ถ้ามี) */}
+        {/* ปุ่มลัดเมื่อมีสาขาเลือกแล้ว */}
         {selected && (
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <span className="text-sm">
@@ -138,11 +144,15 @@ export default function Home() {
           </div>
         )}
 
-        {/* ฟอร์มเพิ่มสาขาใหม่ */}
-        <div className="mt-8 rounded-xl border bg-white p-4">
+        {/* --------- เส้นแบ่ง --------- */}
+        <div className="my-8 h-px bg-black/10" />
+
+        {/* --------- ฟอร์มเพิ่มสาขาใหม่ --------- */}
+        <div className="rounded-xl border bg-white p-4">
           <div className="font-semibold mb-2">เพิ่มสถานที่ใหม่</div>
           <p className="text-sm text-gray-600 mb-3">
-            ระบบจะเพิ่มรายการลงแท็บ <b>Locations</b> และสร้างแท็บสาขาใหม่ (พร้อมหัวคอลัมน์) ให้อัตโนมัติ
+            ระบบจะเพิ่มรายการลงแท็บ <b>Locations</b> และสร้างแท็บสาขาใหม่ (พร้อมหัวคอลัมน์)
+            ให้อัตโนมัติ
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

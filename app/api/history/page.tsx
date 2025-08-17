@@ -8,9 +8,8 @@ type Row = {
   freebies: string; totalQty: number; payment: string; total: number;
 };
 
-function Content() {
+function ClientHistory() {
   const sp = useSearchParams();
-
   const [location, setLocation] = useState(sp.get('location') || 'FLAGSHIP');
   const [date, setDate] = useState(sp.get('date') || new Date().toISOString().slice(0,10));
   const [rows, setRows] = useState<Row[]>([]);
@@ -19,20 +18,26 @@ function Content() {
 
   const load = async () => {
     setLoading(true);
-    const q = new URLSearchParams({ location, date }).toString();
-    const res = await fetch(`/api/history?${q}`, { cache: 'no-store' });
-    const data = await res.json();
-    if (res.ok) {
-      setRows(data.rows || []);
-      setTotals(data.totals || {count:0,totalQty:0,totalAmount:0,byPayment:{}});
-    } else {
-      alert(data.error || 'Load failed');
+    try {
+      const q = new URLSearchParams({ location, date }).toString();
+      const res = await fetch(`/api/history?${q}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (res.ok) {
+        setRows(data.rows || []);
+        setTotals(data.totals || {count:0,totalQty:0,totalAmount:0,byPayment:{}});
+      } else {
+        alert(data.error || 'Load failed');
+        setRows([]);
+        setTotals({count:0,totalQty:0,totalAmount:0,byPayment:{}});
+      }
+    } catch (e:any) {
+      alert(e?.message || 'Network error');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
-    // sync URL (client side)
     const q = new URLSearchParams({ location, date }).toString();
     window.history.replaceState(null, '', `/history?${q}`);
     load();
@@ -57,20 +62,12 @@ function Content() {
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="rounded border px-3 py-2 bg-white" />
         </div>
         <div className="ml-auto flex gap-2">
-          <a
-            className="px-4 py-2 rounded-lg border bg-white"
-            href={`/api/history/csv?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
-            target="_blank" rel="noreferrer"
-          >
-            Download CSV
-          </a>
-          <a
-            className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0]"
-            href={`/api/history/pdf?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
-            target="_blank" rel="noreferrer"
-          >
-            Download PDF
-          </a>
+          <a className="px-4 py-2 rounded-lg border bg-white"
+             href={`/api/history/csv?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
+             target="_blank" rel="noreferrer">Download CSV</a>
+          <a className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0]"
+             href={`/api/history/pdf?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
+             target="_blank" rel="noreferrer">Download PDF</a>
         </div>
       </div>
 
@@ -126,8 +123,8 @@ function Content() {
 
 export default function HistoryPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen p-6 bg-[#fffff0]">Loading…</main>}>
-      <Content />
+    <Suspense fallback={<main className="min-h-screen p-4 sm:p-6 bg-[#fffff0]"><div>Loading…</div></main>}>
+      <ClientHistory />
     </Suspense>
   );
 }

@@ -21,14 +21,14 @@ export default function Home() {
   // ---- โหลดรายการสาขา (มี fallback) ----
   const [locs, setLocs] = useState<LocationRow[]>([]);
   const [loadingLocs, setLoadingLocs] = useState(true);
-
+  
   const loadLocations = async () => {
     try {
       setLoadingLocs(true);
       const res = await fetch('/api/locations', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const apiList: LocationRow[] = data?.locations || [];
-      setLocs(apiList.length > 0 ? apiList : FALLBACK_LOCATIONS);
+      setLocs(FALLBACK_LOCATIONS.map(l => ({ id: l.id, label: l.label })));
     } catch {
       setLocs(FALLBACK_LOCATIONS);
     } finally {

@@ -1,18 +1,19 @@
 // app/api/history/pdf/route.ts
 import { NextResponse } from 'next/server';
-import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '@/app/lib/sheets';
+import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '../../../lib/sheets';
 import PDFDocument from 'pdfkit';
-import { Readable } from 'stream';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function docToBuffer(doc: PDFDocument): Promise<Buffer> {
+// ❌ เดิม: function docToBuffer(doc: PDFDocument): Promise<Buffer>
+// ✅ ใหม่:
+function docToBuffer(doc: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    doc.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+    doc.on('data', (c: any) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', (err) => reject(err));
+    doc.on('error', (err: any) => reject(err));
   });
 }
 
@@ -30,16 +31,15 @@ export async function GET(req: Request) {
     const { rows, totals } = await fetchHistory(spreadsheetId, location, date);
 
     const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    // ... (ที่เหลือเหมือนเดิม)
     // header
     doc.fontSize(16).text(`Coco Bakehouse – End of Day`, { align: 'left' });
     doc.moveDown(0.3);
     doc.fontSize(12).text(`Location: ${location}    Date: ${date}`);
     doc.moveDown(0.5);
 
-    // table header
     const headers = ['Time','Bill','Items','Qty','Payment','Total'];
-    const colX = [40, 100, 150, 420, 470, 540]; // x positions
-    const rowH = 18;
+    const colX = [40, 100, 150, 420, 470, 540];
 
     doc.fontSize(11).fill('#ac0000');
     headers.forEach((h, i) => doc.text(h, colX[i], doc.y, { continued: i < headers.length - 1 }));
@@ -47,7 +47,6 @@ export async function GET(req: Request) {
     doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke('#ac0000');
     doc.fill('#000');
 
-    // rows
     doc.moveDown(0.3);
     rows.forEach(r => {
       const y = doc.y;
@@ -64,7 +63,6 @@ export async function GET(req: Request) {
     doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke('#000');
     doc.moveDown(0.5);
 
-    // totals
     doc.fontSize(12).text(`Bills: ${totals.count}   Total Qty: ${totals.totalQty}`);
     doc.text(`Total Amount: ${totals.totalAmount.toFixed(2)} THB`);
     const payments = Object.entries(totals.byPayment)

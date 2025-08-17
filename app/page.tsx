@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { locations, type LocationId } from './data/locations';
+import { LOCATIONS as locations, type LocationId } from './data/locations';
 
 export default function Home() {
   const router = useRouter();

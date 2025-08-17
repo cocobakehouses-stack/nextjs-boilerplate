@@ -67,19 +67,19 @@ export async function GET(req: Request) {
       .map(([k, v]) => `${k}: ${v.toFixed(2)} THB`).join(' | ');
     if (payments) doc.text(`By Payment → ${payments}`);
 
-    // สร้าง buffer แล้วห่อเป็น Blob เพื่อให้เข้ากับ BodyInit
-    doc.end();
-    const buf = await docToBuffer(doc);
-    const fileName = `EOD_${location}_${date}.pdf`;
+doc.end();
+const buf = await docToBuffer(doc);
+const fileName = `EOD_${location}_${date}.pdf`;
 
-    const blob = new Blob([buf], { type: 'application/pdf' });
-    return new NextResponse(blob, {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
-        'Cache-Control': 'no-store',
-      },
-    });
+// ใช้ Uint8Array แทน Blob เพื่อให้เข้ากับ BodyInit ของ NextResponse
+return new NextResponse(new Uint8Array(buf), {
+  headers: {
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename="${fileName}"`,
+    'Cache-Control': 'no-store',
+  },
+});
+
   } catch (e: any) {
     console.error('GET /api/history/pdf error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });

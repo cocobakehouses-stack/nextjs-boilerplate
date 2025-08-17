@@ -1,16 +1,18 @@
+// app/history/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+
+export const dynamic = 'force-dynamic'; // กัน prerender error และดึงสดทุกครั้ง
 
 type Row = {
   date: string; time: string; billNo: string; items: string;
   freebies: string; totalQty: number; payment: string; total: number;
 };
 
-export default function HistoryPage() {
+function Content() {
   const sp = useSearchParams();
-  const router = useRouter();
   const [location, setLocation] = useState(sp.get('location') || 'FLAGSHIP');
   const [date, setDate] = useState(sp.get('date') || new Date().toISOString().slice(0,10));
   const [rows, setRows] = useState<Row[]>([]);
@@ -32,7 +34,7 @@ export default function HistoryPage() {
   };
 
   useEffect(() => {
-    // sync URL
+    // sync URL (client-side)
     const q = new URLSearchParams({ location, date }).toString();
     const url = `/history?${q}`;
     window.history.replaceState(null, '', url);
@@ -122,5 +124,13 @@ export default function HistoryPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<main className="min-h-screen p-6 bg-[#fffff0]">Loading…</main>}>
+      <Content />
+    </Suspense>
   );
 }

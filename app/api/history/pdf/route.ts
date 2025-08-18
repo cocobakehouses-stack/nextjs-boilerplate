@@ -8,7 +8,7 @@ import path from 'path';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// แปลง PDFKit stream -> Buffer
+// stream -> Buffer
 function docToBuffer(doc: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -29,66 +29,54 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
     }
 
-    // โหลดข้อมูลจากชีต
     const { rows, totals } = await fetchHistory(spreadsheetId, location, date);
 
-    // อ่านไฟล์ฟอนต์ .ttf จากโฟลเดอร์ในโปรเจกต์ (รองรับไทย)
+    // โหลดฟอนต์ไทย .ttf จากโปรเจกต์
     const fontPath = path.join(process.cwd(), 'app', 'fonts', 'NotoSansThai-Regular.ttf');
     const fontBuf = fs.readFileSync(fontPath);
 
-    // สร้าง PDF
     const doc = new PDFDocument({ size: 'A4', margin: 40 });
-
-    // ใช้ฟอนต์ที่ฝังเอง
     doc.font(fontBuf).fontSize(16).text(`Coco Bakehouse – End of Day`, { align: 'left' });
     doc.moveDown(0.3);
     doc.fontSize(12).text(`Location: ${location}    Date: ${date}`);
     doc.moveDown(0.5);
 
-    // หัวตาราง
-    const headers = ['Time', 'Bill', 'Items', 'Qty', 'Payment', 'Total'];
+    const headers = ['Time','Bill','Items','Qty','Payment','Total'];
     const colX = [40, 100, 150, 420, 470, 540];
 
     doc.fontSize(11).fill('#ac0000');
-    headers.forEach((h, i) =>
-      doc.text(h, colX[i], doc.y, { continued: i < headers.length - 1 })
-    );
+    headers.forEach((h, i) => doc.text(h, colX[i], doc.y, { continued: i < headers.length - 1 }));
     doc.moveDown(0.2);
     doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke('#ac0000');
     doc.fill('#000');
 
-    // แถวข้อมูล
     doc.moveDown(0.3);
-    rows.forEach((r) => {
+    rows.forEach(r => {
       const y = doc.y;
-      doc.text(r.time || '', colX[0], y, { width: colX[1] - colX[0] - 6 });
-      doc.text(r.billNo || '', colX[1], y, { width: colX[2] - colX[1] - 6 });
-      doc.text(r.items || '', colX[2], y, { width: colX[3] - colX[2] - 6 });
-      doc.text(String(r.totalQty || 0), colX[3], y, { width: colX[4] - colX[3] - 6 });
-      doc.text(r.payment || '', colX[4], y, { width: colX[5] - colX[4] - 6 });
+      doc.text(r.time || '', colX[0], y, { width: colX[1]-colX[0]-6 });
+      doc.text(r.billNo || '', colX[1], y, { width: colX[2]-colX[1]-6 });
+      doc.text(r.items || '', colX[2], y, { width: colX[3]-colX[2]-6 });
+      doc.text(String(r.totalQty || 0), colX[3], y, { width: colX[4]-colX[3]-6 });
+      doc.text(r.payment || '', colX[4], y, { width: colX[5]-colX[4]-6 });
       doc.text((r.total || 0).toFixed(2), colX[5], y, { width: 60 });
       doc.moveDown(0.2);
     });
 
-    // สรุปท้ายเอกสาร
     doc.moveDown(0.5);
     doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke('#000');
     doc.moveDown(0.5);
-
     doc.fontSize(12).text(`Bills: ${totals.count}   Total Qty: ${totals.totalQty}`);
     doc.text(`Total Amount: ${totals.totalAmount.toFixed(2)} THB`);
-    const payments = Object.entries(totals.byPayment)
-      .map(([k, v]) => `${k}: ${v.toFixed(2)} THB`)
-      .join(' | ');
+    const payments = Object.entries(totals.byPayment).map(([k, v]) => `${k}: ${v.toFixed(2)} THB`).join(' | ');
     if (payments) doc.text(`By Payment → ${payments}`);
 
-    // ปิดเอกสารและส่งออก
     doc.end();
     const buf = await docToBuffer(doc);
     const fileName = `EOD_${location}_${date}.pdf`;
 
-    // ใช้ Response ตรง ๆ (หลีกเลี่ยง type issue ของ NextResponse กับ Buffer)
-    return new Response(buf, {
+    // 🔧 FIX: แปลง Buffer -> ArrayBuffer ก่อนส่งให้ Response
+    const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    return new Response(arrayBuffer, {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${fileName}"`,

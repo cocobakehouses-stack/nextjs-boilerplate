@@ -31,7 +31,7 @@ export async function GET(req: Request) {
 
     // สร้างเอกสาร + ฟอนต์ UID SPACE.ttf
     const doc = new (PDFDocument as any)({ size: 'A4', margin: 40 });
-    const fontPath = path.join(process.cwd(), 'app', 'fonts', 'UID SPACE.ttf');
+    const fontPath = path.join(process.cwd(), 'app', 'fonts', 'UID_SPACE.ttf');
     doc.registerFont('UID_SPACE', fontPath);
     doc.font('UID_SPACE');
 

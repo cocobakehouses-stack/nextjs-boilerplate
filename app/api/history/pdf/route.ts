@@ -6,13 +6,13 @@ import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '../../../lib/sh
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// รวม buffer จากสตรีมของ pdfkit เป็น Buffer เดียว
-function docToBuffer(doc: PDFDocument): Promise<Buffer> {
+// ใช้ any เพื่อเลี่ยง type error ของ pdfkit ใน Next build
+function docToBuffer(doc: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    doc.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+    doc.on('data', (c: any) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', (err) => reject(err));
+    doc.on('error', (err: any) => reject(err));
   });
 }
 
@@ -29,12 +29,10 @@ export async function GET(req: Request) {
 
     const { rows, totals } = await fetchHistory(spreadsheetId, location, date);
 
-    // เตรียม PDF + ฟอนต์
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    // สร้างเอกสาร + ฟอนต์ UID SPACE.ttf
+    const doc = new (PDFDocument as any)({ size: 'A4', margin: 40 });
     const fontPath = path.join(process.cwd(), 'app', 'fonts', 'UID SPACE.ttf');
-    // ลงทะเบียนและใช้งานฟอนต์ UID SPACE ตลอดทั้งไฟล์
-    // (ห้ามใช้ Helvetica เพราะ Vercel ไม่มีไฟล์ .afm ให้)
-    // @ts-expect-error pdfkit types อาจไม่รู้จัก registerFont ในบางเวอร์ชัน แต่รันได้จริง
+    // @ts-expect-error: บางเวอร์ชันของ types ไม่รู้จัก registerFont
     doc.registerFont('UID_SPACE', fontPath);
     doc.font('UID_SPACE');
 
@@ -48,7 +46,7 @@ export async function GET(req: Request) {
 
     // Table header
     const headers = ['Time', 'Bill', 'Items', 'Qty', 'Payment', 'Total'];
-    const colX = [40, 100, 150, 420, 470, 540]; // x ของแต่ละคอลัมน์
+    const colX = [40, 100, 150, 420, 470, 540];
 
     doc.fontSize(11).fill('#ac0000');
     headers.forEach((h, i) => {
@@ -86,7 +84,6 @@ export async function GET(req: Request) {
     doc.end();
     const buf = await bufPromise;
 
-    // ✅ ใช้ Uint8Array เพื่อให้ชนิดตรงกับ Response body
     const fileName = `EOD_${location}_${date}.pdf`;
     return new Response(new Uint8Array(buf), {
       headers: {

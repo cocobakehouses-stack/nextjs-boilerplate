@@ -70,19 +70,21 @@ export async function GET(req: Request) {
     const payments = Object.entries(totals.byPayment).map(([k, v]) => `${k}: ${v.toFixed(2)} THB`).join(' | ');
     if (payments) doc.text(`By Payment → ${payments}`);
 
-    doc.end();
-    const buf = await docToBuffer(doc);
-    const fileName = `EOD_${location}_${date}.pdf`;
+   doc.end();
+const buf = await docToBuffer(doc);
+const fileName = `EOD_${location}_${date}.pdf`;
 
-    // 🔧 FIX: แปลง Buffer -> ArrayBuffer ก่อนส่งให้ Response
-    const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    return new Response(arrayBuffer, {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
-        'Cache-Control': 'no-store',
-      },
-    });
+// ✅ ใช้ Uint8Array แทน Buffer/ArrayBuffer เพื่อให้ TypeScript ยอม
+const uint8 = new Uint8Array(buf);
+
+return new Response(uint8, {
+  headers: {
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename="${fileName}"`,
+    'Cache-Control': 'no-store',
+  },
+});
+
   } catch (e: any) {
     console.error('GET /api/history/pdf error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });

@@ -24,4 +24,6 @@ export const products: Product[] = [
   { id: 16, name: 'Lemon',                          price: 125 },
   { id: 17, name: "S'more",                         price: 109 },
   { id: 18, name: 'Salt Caramel',                   price: 109 },
+  { id: 18, name: 'Soft Chocolate',                 price: 99 },
+
 ];

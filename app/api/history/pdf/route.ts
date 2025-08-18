@@ -6,7 +6,7 @@ import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '../../../lib/sh
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// ใช้ any เพื่อเลี่ยง type error ของ pdfkit ใน Next build
+// รวม buffer จากสตรีมของ pdfkit เป็น Buffer เดียว
 function docToBuffer(doc: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -32,7 +32,6 @@ export async function GET(req: Request) {
     // สร้างเอกสาร + ฟอนต์ UID SPACE.ttf
     const doc = new (PDFDocument as any)({ size: 'A4', margin: 40 });
     const fontPath = path.join(process.cwd(), 'app', 'fonts', 'UID SPACE.ttf');
-    // @ts-expect-error: บางเวอร์ชันของ types ไม่รู้จัก registerFont
     doc.registerFont('UID_SPACE', fontPath);
     doc.font('UID_SPACE');
 

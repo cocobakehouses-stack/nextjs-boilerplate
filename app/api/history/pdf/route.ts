@@ -32,7 +32,7 @@ export async function GET(req: Request) {
     const { rows, totals } = await fetchHistory(spreadsheetId, location, date);
 
     // โหลดฟอนต์ไทย .ttf จากโปรเจกต์
-    const fontPath = path.join(process.cwd(), 'app', 'fonts', 'NotoSansThai-Regular.ttf');
+    const fontPath = path.join(process.cwd(), 'app', 'fonts', 'UID SPACE.ttf');
     const fontBuf = fs.readFileSync(fontPath);
 
     const doc = new PDFDocument({ size: 'A4', margin: 40 });

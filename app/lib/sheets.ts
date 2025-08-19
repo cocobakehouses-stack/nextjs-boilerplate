@@ -2,7 +2,7 @@
 import { google } from 'googleapis';
 
 const TZ = 'Asia/Bangkok';
-export const ALLOWED_TABS = new Set(['FLAGSHIP', 'SINDHORN', 'CHIN3', 'ORDERS']);
+export const ALLOWED_TABS = new Set(['FLAGSHIP', 'SINDHORN', 'CHIN3', 'ORDERS', 'GOV_PARLIMENT',]);
 
 export function getAuth() {
   const rawJson = process.env.GOOGLE_CREDENTIALS_JSON;

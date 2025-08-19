@@ -1,75 +1,71 @@
+// app/api/locations/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getAuth, ensureSheetExists } from '@/app/lib/sheets';
+import { getAuth, ensureSheetExists } from '../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const REGISTRY_TAB = 'Locations';
-const ID_PATTERN = /^[A-Z0-9_]+$/; // ไม่มีเว้นวรรค/พิเศษ และเป็น CAPS
-
-async function listLocations(spreadsheetId: string) {
-  const auth = getAuth();
-  const sheets = google.sheets({ version: 'v4', auth });
-  // ให้มีแท็บ registry เสมอ
-  await ensureSheetExists(sheets, spreadsheetId, REGISTRY_TAB);
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${REGISTRY_TAB}!A:B`,
-  });
-  const rows = (res.data.values || []).slice(1);
-  return rows
-    .filter(r => (r[0] || '').trim())
-    .map(r => ({ id: (r[0] || '').trim(), label: (r[1] || '').trim() || r[0] }));
-}
+const LOCATIONS_TAB = 'Locations'; // A: ID, B: Label
 
 export async function GET() {
   try {
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
-    const data = await listLocations(spreadsheetId);
-    return NextResponse.json({ locations: data });
+    const auth = getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // ensure Locations tab
+    await ensureSheetExists(sheets, spreadsheetId, LOCATIONS_TAB);
+    // set header if empty
+    await sheets.spreadsheets.values.update({
+      spreadsheetId, range: `${LOCATIONS_TAB}!A1:B1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [['ID','Label']] },
+    });
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId, range: `${LOCATIONS_TAB}!A:B`
+    });
+    const rows = (res.data.values || []).slice(1);
+    const locations = rows
+      .map(r => ({ id: (r[0]||'').toString().trim().toUpperCase(), label: (r[1]||'').toString().trim() }))
+      .filter(r => r.id && r.label);
+
+    return NextResponse.json({ locations }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {
     console.error('GET /api/locations error', e?.message || e);
-    return NextResponse.json({ error: 'failed' }, { status: 500 });
+    return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
     const { id, label } = await req.json();
-
-    if (!id || !label) {
-      return NextResponse.json({ error: 'id and label are required' }, { status: 400 });
-    }
-    const normId = String(id).trim().toUpperCase();
-    if (!ID_PATTERN.test(normId)) {
-      return NextResponse.json({ error: 'Invalid ID. Use A–Z, 0–9, _ only (no spaces).' }, { status: 400 });
+    const normId = (id || '').toString().trim().toUpperCase();
+    const normLabel = (label || '').toString().trim();
+    if (!/^[A-Z0-9_]+$/.test(normId) || !normLabel) {
+      return NextResponse.json({ error: 'Invalid id/label' }, { status: 400 });
     }
 
+    const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // 1) ensure registry exists
-    await ensureSheetExists(sheets, spreadsheetId, REGISTRY_TAB);
-    // 2) check duplicate in registry
-    const current = await listLocations(spreadsheetId);
-    if (current.some(l => l.id === normId)) {
-      return NextResponse.json({ error: 'This ID already exists' }, { status: 409 });
-    }
-    // 3) append into registry
+    // ensure Locations tab + append
+    await ensureSheetExists(sheets, spreadsheetId, LOCATIONS_TAB);
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${REGISTRY_TAB}!A:B`,
+      range: `${LOCATIONS_TAB}!A:B`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[normId, String(label).trim()]] },
+      requestBody: { values: [[normId, normLabel]] },
     });
-    // 4) create the new location tab (with headers A–H แบบที่ใช้อยู่)
+
+    // ensure new location sheet
     await ensureSheetExists(sheets, spreadsheetId, normId);
 
-    return NextResponse.json({ ok: true, id: normId, label: String(label).trim() });
+    return NextResponse.json({ ok: true, id: normId, label: normLabel });
   } catch (e: any) {
     console.error('POST /api/locations error', e?.message || e);
-    return NextResponse.json({ error: 'failed' }, { status: 500 });
+    return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
   }
 }

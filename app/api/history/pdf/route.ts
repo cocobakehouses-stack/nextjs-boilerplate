@@ -29,11 +29,11 @@ export async function GET(req: Request) {
 
     const { rows, totals } = await fetchHistory(spreadsheetId, location, date);
 
-    // สร้างเอกสาร + ฟอนต์ UID SPACE.ttf
+    // ใช้ฟอนต์ UID_SPACE.ttf (ต้องวางไว้ที่ app/fonts/UID_SPACE.ttf)
     const doc = new (PDFDocument as any)({ size: 'A4', margin: 40 });
     const fontPath = path.join(process.cwd(), 'app', 'fonts', 'UID_SPACE.ttf');
-    doc.registerFont('UID_SPACE', fontPath);
-    doc.font('UID_SPACE');
+    (doc as any).registerFont('UID_SPACE', fontPath);
+    (doc as any).font('UID_SPACE');
 
     const bufPromise = docToBuffer(doc);
 
@@ -48,7 +48,7 @@ export async function GET(req: Request) {
     const colX = [40, 100, 150, 420, 470, 540];
 
     doc.fontSize(11).fill('#ac0000');
-    headers.forEach((h, i) => {
+    headers.forEach((h: string, i: number) => {
       doc.text(h, colX[i], doc.y, { continued: i < headers.length - 1 });
     });
     doc.moveDown(0.2);

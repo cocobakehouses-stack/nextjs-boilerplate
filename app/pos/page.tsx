@@ -86,7 +86,7 @@ export default function POSPage() {
   }, [allProducts]);
 
   // ---------- Cart operations ----------
-  const addToCart = (p: Product) => {
+const addToCart = (p: Product) => {
     setCart((prev) => {
       const idx = prev.findIndex((i) => i.id === p.id);
       if (idx >= 0) {
@@ -110,6 +110,7 @@ export default function POSPage() {
   const removeFromCart = (id: number) => {
     setCart((prev) => prev.filter((i) => i.id !== id));
   };
+
 
   // ---------- Totals ----------
   const subtotal = useMemo(() => cart.reduce((s, i) => s + i.price * i.quantity, 0), [cart]);

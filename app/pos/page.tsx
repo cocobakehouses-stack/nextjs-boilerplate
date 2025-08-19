@@ -284,62 +284,78 @@ const addToCart = (p: Product) => {
                 )
               )}
 
-              {/* Sticky footer: Cart + ไปสรุปออเดอร์ */}
-              <div className="fixed bottom-0 left-0 right-0 bg-[#fffff0]/95 backdrop-blur border-t">
-                <div className="mx-auto max-w-6xl p-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setCartOpen((s) => !s)}
-                      className="px-3 py-2 rounded-lg border bg-white"
-                    >
-                      {cartOpen ? 'ปิดตะกร้า' : `Cart (${totalQty})`}
-                    </button>
-                    <div className="text-sm">
-                      รวมจำนวน: <b>{totalQty}</b> | ยอดรวม: <b>{subtotal} THB</b>
-                    </div>
+            {/* Sticky footer: Cart + ไปสรุปออเดอร์ */}
+<div
+  className="fixed bottom-0 left-0 right-0 z-50 bg-[#fffff0]/95 backdrop-blur border-t shadow-lg"
+  style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+>
+  <div className="mx-auto max-w-6xl p-3 flex items-center justify-between gap-3">
+    <div className="flex items-center gap-3">
+      <button
+        onClick={() => setCartOpen((s) => !s)}
+        className="px-3 py-2 rounded-lg border bg-white"
+      >
+        {cartOpen ? 'ปิดตะกร้า' : `Cart (${totalQty})`}
+      </button>
+      <div className="text-sm">
+        รวมจำนวน: <b>{totalQty}</b> | ยอดรวม: <b>{subtotal} THB</b>
+      </div>
+    </div>
+    <button
+      onClick={goSummary}
+      className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40"
+      disabled={!location || cart.length === 0}
+    >
+      ไปสรุปออเดอร์
+    </button>
+  </div>
+
+  {/* Cart drawer (inline) */}
+  {cartOpen && (
+    <div className="mx-auto max-w-6xl border-t bg-white">
+      <div className="p-3 max-h-60 overflow-y-auto">
+        {cart.length === 0 ? (
+          <div className="text-gray-600">Cart is empty</div>
+        ) : (
+          <div className="space-y-3">
+            {cart.map((i) => (
+              <div key={i.id} className="flex justify-between items-center border-b pb-2">
+                <div>
+                  <div className="font-semibold">{i.name}</div>
+                  <div className="text-sm text-gray-600">
+                    {i.price} THB × {i.quantity}
                   </div>
+                </div>
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={goSummary}
-                    className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40"
-                    disabled={!location || cart.length === 0}
+                    onClick={() => changeQty(i.id, i.quantity - 1)}
+                    className="px-2 py-1 border rounded"
                   >
-                    ไปสรุปออเดอร์
+                    -
+                  </button>
+                  <span>{i.quantity}</span>
+                  <button
+                    onClick={() => changeQty(i.id, i.quantity + 1)}
+                    className="px-2 py-1 border rounded"
+                  >
+                    +
+                  </button>
+                  <button
+                    onClick={() => removeFromCart(i.id)}
+                    className="px-3 py-1 bg-red-500 text-white rounded"
+                  >
+                    Remove
                   </button>
                 </div>
-
-                {/* Cart drawer (inline) */}
-                {cartOpen && (
-                  <div className="mx-auto max-w-6xl border-t bg-white">
-                    <div className="p-3">
-                      {cart.length === 0 ? (
-                        <div className="text-gray-600">Cart is empty</div>
-                      ) : (
-                        <div className="space-y-3">
-                          {cart.map((i) => (
-                            <div key={i.id} className="flex justify-between items-center border-b pb-2">
-                              <div>
-                                <div className="font-semibold">{i.name}</div>
-                                <div className="text-sm text-gray-600">
-                                  {i.price} THB × {i.quantity}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button onClick={() => changeQty(i.id, i.quantity - 1)} className="px-2 py-1 border rounded">-</button>
-                                <span>{i.quantity}</span>
-                                <button onClick={() => changeQty(i.id, i.quantity + 1)} className="px-2 py-1 border rounded">+</button>
-                                <button onClick={() => removeFromCart(i.id)} className="px-3 py-1 bg-red-500 text-white rounded">Remove</button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
-              <div className="h-36" />
-            </>
-          )}
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )}
+</div>
+<div className="h-36" />
 
           {/* SUMMARY */}
           {step === 'summary' && (

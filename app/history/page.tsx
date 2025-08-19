@@ -114,6 +114,7 @@ function Inner() {
         <div className="bg-white rounded-xl border p-3">Bills: <b>{totals.count}</b></div>
         <div className="bg-white rounded-xl border p-3">Total Qty: <b>{totals.totalQty}</b></div>
         <div className="bg-white rounded-xl border p-3">Total Amount: <b>{totals.totalAmount.toFixed(2)} THB</b></div>
+        <div className="bg-white rounded-xl border p-3">Freebies Amount: <b>{(totals.freebiesAmount || 0).toFixed(2)} THB</b></div>
         <div className="bg-white rounded-xl border p-3">
           By Payment:&nbsp;
           {Object.keys(totals.byPayment).length === 0 ? '—' :

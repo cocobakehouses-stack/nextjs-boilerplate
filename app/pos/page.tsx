@@ -2,10 +2,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
-import { products } from '../data/products';
+import { products as BASE_PRODUCTS } from '../data/products';
 
 // ---------- Types ----------
 type Product = { id: number; name: string; price: number };
@@ -15,6 +14,7 @@ type Step = 'cart' | 'summary' | 'confirm' | 'success';
 
 // ---------- Helpers ----------
 const TZ = 'Asia/Bangkok';
+
 function toDateString(d: Date) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
 }
@@ -23,25 +23,21 @@ function toTimeString(d: Date) {
     timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).format(d).replace(/\./g, ':');
 }
+
 function classNames(...xs: (string | false | null | undefined)[]) {
   return xs.filter(Boolean).join(' ');
 }
 
 // ---------- Page ----------
-export default function PosPage() {
-  const router = useRouter();
-
-  // Location (ต้องเลือกก่อนใช้งาน) – ถ้าไม่มีให้เด้งกลับ Home
+export default function POSPage() {
+  // Location
   const [location, setLocation] = useState<LocationId | null>(null);
   useEffect(() => {
     const saved = (localStorage.getItem('pos_location') as LocationId | null) || null;
-    if (!saved) {
-      router.replace('/'); // กลับหน้าเลือกสาขา
-    } else {
-      setLocation(saved);
-    }
-  }, [router]);
+    if (saved) setLocation(saved);
+  }, []);
 
+  // Step flow
   const [step, setStep] = useState<Step>('cart');
 
   // Core states
@@ -51,7 +47,7 @@ export default function PosPage() {
 
   // Freebies
   const [freebies, setFreebies] = useState<Line[]>([]);
-  const [freebiePick, setFreebiePick] = useState<number>(products[0]?.id ?? 0);
+  const [freebiePick, setFreebiePick] = useState<number>(BASE_PRODUCTS[0]?.id ?? 0);
 
   // Date/Time
   const [dateStr, setDateStr] = useState<string>(toDateString(new Date()));
@@ -67,7 +63,29 @@ export default function PosPage() {
     total: number;
   } | null>(null);
 
-  // --- Cart ops ---
+  // ---------- Products: auto-sort + grouping ----------
+  // ขณะนี้ใช้เฉพาะ BASE_PRODUCTS (ตัด add menu ออก)
+  const allProducts = useMemo<Product[]>(() => {
+    const merged = [...BASE_PRODUCTS];
+    merged.sort((a, b) => b.price - a.price); // สูง → ต่ำ
+    return merged;
+  }, []);
+
+  // Grouping ตามช่วงราคา
+  const grouped = useMemo(() => {
+    const premium: Product[] = [];
+    const levain: Product[] = [];
+    const soft: Product[] = [];
+    for (const p of allProducts) {
+      if (p.price > 135) premium.push(p);
+      else if (p.price > 125 && p.price <= 135) levain.push(p);
+      else if (p.price <= 109) soft.push(p);
+      // ช่วง 110–125 จะไม่เข้าหมวด ถ้าอยากให้เข้าหมวด Soft ให้เปลี่ยนเป็น `else soft.push(p);`
+    }
+    return { premium, levain, soft };
+  }, [allProducts]);
+
+  // ---------- Cart operations ----------
   const addToCart = (p: Product) => {
     setCart((prev) => {
       const idx = prev.findIndex((i) => i.id === p.id);
@@ -81,20 +99,27 @@ export default function PosPage() {
     setAdded((prev) => ({ ...prev, [p.id]: true }));
     setTimeout(() => setAdded((prev) => ({ ...prev, [p.id]: false })), 600);
   };
-  const changeQty = (id: number, q: number) => {
-    setCart((prev) => (q <= 0 ? prev.filter((i) => i.id !== id) : prev.map((i) => (i.id === id ? { ...i, quantity: q } : i))));
-  };
-  const removeFromCart = (id: number) => setCart((prev) => prev.filter((i) => i.id !== id));
 
-  // --- Totals ---
+  const changeQty = (id: number, q: number) => {
+    setCart((prev) => {
+      if (q <= 0) return prev.filter((i) => i.id !== id);
+      return prev.map((i) => (i.id === id ? { ...i, quantity: q } : i));
+    });
+  };
+
+  const removeFromCart = (id: number) => {
+    setCart((prev) => prev.filter((i) => i.id !== id));
+  };
+
+  // ---------- Totals ----------
   const subtotal = useMemo(() => cart.reduce((s, i) => s + i.price * i.quantity, 0), [cart]);
   const freebiesValue = useMemo(() => freebies.reduce((s, f) => s + f.price * f.qty, 0), [freebies]);
   const totalQty = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
   const netTotal = useMemo(() => Math.max(0, subtotal - freebiesValue), [subtotal, freebiesValue]);
 
-  // --- Freebies ops ---
+  // ---------- Freebies ops ----------
   const addFreebie = () => {
-    const prod = products.find((p) => p.id === freebiePick);
+    const prod = allProducts.find((p) => p.id === freebiePick);
     if (!prod) return;
     setFreebies((prev) => {
       const idx = prev.findIndex((f) => f.name === prod.name);
@@ -111,7 +136,7 @@ export default function PosPage() {
   };
   const removeFreebie = (name: string) => setFreebies((prev) => prev.filter((f) => f.name !== name));
 
-  // --- Navigation ---
+  // ---------- Navigation ----------
   const goSummary = () => {
     if (!location) return alert('กรุณาเลือกสถานที่ก่อนใช้งาน');
     if (cart.length === 0) return alert('กรุณาเพิ่มสินค้าในตะกร้า');
@@ -120,18 +145,22 @@ export default function PosPage() {
     setTimeStr(toTimeString(now));
     setStep('summary');
   };
+
   const goConfirm = () => {
     if (!payment) return alert('กรุณาเลือกวิธีชำระเงิน');
     setStep('confirm');
   };
+
   const resetForNewBill = () => {
     setCart([]); setAdded({}); setPayment(null); setFreebies([]); setLastSaved(null); setStep('cart');
   };
 
-  // --- Submit to API (ไม่ส่ง billNo → ให้ backend ออกให้รายวัน/สาขา) ---
+  // ---------- API submit ----------
   const submitOrder = async () => {
     if (!location || !payment) return;
+
     const itemsPayload: Line[] = cart.map((i) => ({ name: i.name, qty: i.quantity, price: i.price }));
+
     const body = {
       location,
       date: dateStr,
@@ -169,6 +198,8 @@ export default function PosPage() {
   };
 
   // ---------- UI ----------
+  const [cartOpen, setCartOpen] = useState(false);
+
   return (
     <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-[#fffff0]">
       {/* Header */}
@@ -179,19 +210,16 @@ export default function PosPage() {
             Location: <b>{location ?? '— เลือกก่อนใช้งาน —'}</b>
           </span>
           <button
-            onClick={() => router.push('/')}
-            className="px-3 py-1 rounded-lg border bg-white"
+            onClick={() => { localStorage.removeItem('pos_location'); setLocation(null); }}
+            className="px-3 py-1 rounded-lg border hover:bg-white"
           >
-            เปลี่ยนสาขา
+            เปลี่ยนสถานที่
           </button>
           {location && (
             <a
-              className="px-3 py-1 rounded-lg border bg-white"
-              target="_blank"
-              rel="noreferrer"
-              href={`/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(
-                dateStr
-              )}`}
+              className="px-3 py-1 rounded-lg border hover:bg-white"
+              target="_blank" rel="noreferrer"
+              href={`/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(dateStr)}`}
               title="Show history (open in new tab)"
             >
               Show history
@@ -200,7 +228,8 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* หากยังไม่มี location ให้รอ/หรือใส่ตัวเลือกซ้ำ */}
+      {/* Location Gate */}
+      <LocationPicker value={location} onChange={(loc) => setLocation(loc)} />
       {!location ? null : (
         <>
           {/* Stepper */}
@@ -222,66 +251,51 @@ export default function PosPage() {
             ))}
           </div>
 
-          {/* CART */}
+          {/* CART (สินค้าพร้อมหัวคั่น) */}
           {step === 'cart' && (
             <>
-              {/* Products grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                {products.map((p) => (
-                  <div key={p.id} className="border rounded-xl p-4 flex flex-col items-center bg-white">
-                    <h2 className="text-lg font-semibold text-center">{p.name}</h2>
-                    <p className="text-gray-600 mb-3">{p.price} THB</p>
-                    <button
-                      onClick={() => addToCart(p)}
-                      className={classNames(
-                        'mt-auto w-full px-4 py-2 rounded text-[#fffff0]',
-                        added[p.id] ? 'bg-green-600' : 'bg-[#ac0000] hover:opacity-90'
-                      )}
-                    >
-                      {added[p.id] ? 'Added!' : 'Add to Cart'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {/* Cart list */}
-              <div className="mt-8 bg-white rounded-xl p-4 border">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-2xl font-bold">Cart</h2>
-                  <div className="text-sm text-gray-700">
-                    รวมจำนวน: <b>{totalQty}</b> | ยอดรวม: <b>{subtotal} THB</b>
-                  </div>
-                </div>
-
-                {cart.length === 0 ? (
-                  <p className="text-gray-600">Cart is empty</p>
-                ) : (
-                  <div className="space-y-3">
-                    {cart.map((i) => (
-                      <div key={i.id} className="flex justify-between items-center border-b pb-2">
-                        <div>
-                          <div className="font-semibold">{i.name}</div>
-                          <div className="text-sm text-gray-600">
-                            {i.price} THB × {i.quantity}
-                          </div>
+              {[
+                { title: 'Premium', items: grouped.premium },
+                { title: 'Levain Cookies', items: grouped.levain },
+                { title: 'Soft Cookies', items: grouped.soft },
+              ].map(({ title, items }) =>
+                items.length === 0 ? null : (
+                  <div key={title} className="mb-6">
+                    <h2 className="text-xl font-bold mb-3">{title}</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {items.map((p) => (
+                        <div key={p.id} className="border rounded-xl p-4 flex flex-col items-center bg-white">
+                          <h3 className="text-lg font-semibold text-center">{p.name}</h3>
+                          <p className="text-gray-600 mb-3">{p.price} THB</p>
+                          <button
+                            onClick={() => addToCart(p)}
+                            className={classNames(
+                              'mt-auto w-full px-4 py-2 rounded text-[#fffff0]',
+                              added[p.id] ? 'bg-green-600' : 'bg-[#ac0000] hover:opacity-90'
+                            )}
+                          >
+                            {added[p.id] ? 'Added!' : 'Add to Cart'}
+                          </button>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => changeQty(i.id, i.quantity - 1)} className="px-2 py-1 border rounded">-</button>
-                          <span>{i.quantity}</span>
-                          <button onClick={() => changeQty(i.id, i.quantity + 1)} className="px-2 py-1 border rounded">+</button>
-                          <button onClick={() => removeFromCart(i.id)} className="px-3 py-1 bg-red-500 text-white rounded">Remove</button>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                )}
-              </div>
+                )
+              )}
 
-              {/* Sticky action bar */}
+              {/* Sticky footer: Cart + ไปสรุปออเดอร์ */}
               <div className="fixed bottom-0 left-0 right-0 bg-[#fffff0]/95 backdrop-blur border-t">
-                <div className="mx-auto max-w-6xl p-3 flex items-center justify-between">
-                  <div className="text-sm">
-                    รวมจำนวน: <b>{totalQty}</b> | ยอดรวม: <b>{subtotal} THB</b>
+                <div className="mx-auto max-w-6xl p-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setCartOpen((s) => !s)}
+                      className="px-3 py-2 rounded-lg border bg-white"
+                    >
+                      {cartOpen ? 'ปิดตะกร้า' : `Cart (${totalQty})`}
+                    </button>
+                    <div className="text-sm">
+                      รวมจำนวน: <b>{totalQty}</b> | ยอดรวม: <b>{subtotal} THB</b>
+                    </div>
                   </div>
                   <button
                     onClick={goSummary}
@@ -291,8 +305,38 @@ export default function PosPage() {
                     ไปสรุปออเดอร์
                   </button>
                 </div>
+
+                {/* Cart drawer (inline) */}
+                {cartOpen && (
+                  <div className="mx-auto max-w-6xl border-t bg-white">
+                    <div className="p-3">
+                      {cart.length === 0 ? (
+                        <div className="text-gray-600">Cart is empty</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {cart.map((i) => (
+                            <div key={i.id} className="flex justify-between items-center border-b pb-2">
+                              <div>
+                                <div className="font-semibold">{i.name}</div>
+                                <div className="text-sm text-gray-600">
+                                  {i.price} THB × {i.quantity}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => changeQty(i.id, i.quantity - 1)} className="px-2 py-1 border rounded">-</button>
+                                <span>{i.quantity}</span>
+                                <button onClick={() => changeQty(i.id, i.quantity + 1)} className="px-2 py-1 border rounded">+</button>
+                                <button onClick={() => removeFromCart(i.id)} className="px-3 py-1 bg-red-500 text-white rounded">Remove</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="h-16" />
+              <div className="h-36" />
             </>
           )}
 
@@ -347,9 +391,15 @@ export default function PosPage() {
 
                 <h3 className="font-semibold mb-2">ของแถม (Freebies)</h3>
                 <div className="flex gap-2 items-center">
-                  <select className="rounded-lg border px-3 py-2" value={freebiePick} onChange={(e) => setFreebiePick(Number(e.target.value))}>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.price} THB)</option>
+                  <select
+                    className="rounded-lg border px-3 py-2"
+                    value={freebiePick}
+                    onChange={(e) => setFreebiePick(Number(e.target.value))}
+                  >
+                    {allProducts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.price} THB)
+                      </option>
                     ))}
                   </select>
                   <button onClick={addFreebie} className="px-3 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90">

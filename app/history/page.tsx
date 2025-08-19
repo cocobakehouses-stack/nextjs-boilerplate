@@ -14,7 +14,7 @@ function Inner() {
   const [location, setLocation] = useState(sp.get('location') || 'FLAGSHIP');
   const [date, setDate] = useState(sp.get('date') || new Date().toISOString().slice(0,10));
   const [rows, setRows] = useState<Row[]>([]);
-  const [totals, setTotals] = useState<{count:number; totalQty:number; totalAmount:number; byPayment: Record<string, number>}>({count:0,totalQty:0,totalAmount:0,byPayment:{}});
+  const [totals, setTotals] = useState<{count:number; totalQty:number; totalAmount:number; freebiesAmount: number; byPayment: Record<string, number>}>({count:0,totalQty:0,totalAmount:0,byPayment:{}});
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
@@ -23,8 +23,14 @@ function Inner() {
     const res = await fetch(`/api/history?${q}`, { cache: 'no-store' });
     const data = await res.json();
     if (res.ok) {
-      setRows(data.rows || []);
-      setTotals(data.totals || {count:0,totalQty:0,totalAmount:0,byPayment:{}});
+  setRows(data.rows || []);
+  setTotals({
+    count: data.totals?.count ?? 0,
+    totalQty: data.totals?.totalQty ?? 0,
+    totalAmount: data.totals?.totalAmount ?? 0,
+    freebiesAmount: data.totals?.freebiesAmount ?? 0, // ⬅️ เพิ่ม fallback
+    byPayment: data.totals?.byPayment ?? {},
+  });
     } else {
       alert(data.error || 'Load failed');
     }

@@ -23,7 +23,7 @@ export async function GET(req: Request) {
       header.join(','),
       ...rows.map(r => [
         r.date, r.time, r.billNo,
-        JSON.stringify(r.items), // กันคอมม่าในข้อความ
+        JSON.stringify(r.items),
         JSON.stringify(r.freebies),
         String(r.totalQty),
         r.payment,

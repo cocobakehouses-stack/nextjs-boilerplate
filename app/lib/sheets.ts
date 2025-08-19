@@ -2,7 +2,7 @@
 import { google } from 'googleapis';
 
 const TZ = 'Asia/Bangkok';
-export const ALLOWED_TABS = new Set(['FLAGSHIP', 'SINDHORN', 'CHIN3', 'ORDERS', 'GOV_PARLIMENT',]);
+export const ALLOWED_TABS = new Set(['FLAGSHIP', 'SINDHORN', 'CHIN3', 'ORDERS']);
 
 export function getAuth() {
   const rawJson = process.env.GOOGLE_CREDENTIALS_JSON;
@@ -33,7 +33,7 @@ export function getAuth() {
 }
 
 export function toBangkokDateString(d = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d); // YYYY-MM-DD
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
 }
 
 export async function ensureSheetExists(sheets: any, spreadsheetId: string, title: string) {
@@ -44,8 +44,8 @@ export async function ensureSheetExists(sheets: any, spreadsheetId: string, titl
       spreadsheetId, requestBody: { requests: [{ addSheet: { properties: { title } } }] },
     });
     await sheets.spreadsheets.values.update({
-      spreadsheetId, range: `${title}!A1:H1`, valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[ 'Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total' ]] },
+      spreadsheetId, range: `${title}!A1:I1`, valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [[ 'Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount' ]] },
     });
   }
 }
@@ -53,6 +53,7 @@ export async function ensureSheetExists(sheets: any, spreadsheetId: string, titl
 export type HistoryRow = {
   date: string; time: string; billNo: string; items: string;
   freebies: string; totalQty: number; payment: string; total: number;
+  freebiesAmount: number;
 };
 
 export async function fetchHistory(spreadsheetId: string, tabTitle: string, date: string) {
@@ -62,7 +63,7 @@ export async function fetchHistory(spreadsheetId: string, tabTitle: string, date
   await ensureSheetExists(sheets, spreadsheetId, tabTitle);
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId, range: `${tabTitle}!A:H`,
+    spreadsheetId, range: `${tabTitle}!A:I`,
   });
 
   const rows: string[][] = res.data.values || [];
@@ -76,6 +77,7 @@ export async function fetchHistory(spreadsheetId: string, tabTitle: string, date
       totalQty: Number(r[5] || 0),
       payment: r[6] || '',
       total: Number((r[7] || '0').toString().replace(/,/g, '')),
+      freebiesAmount: Number((r[8] || '0').toString().replace(/,/g, '')),
     } as HistoryRow))
     .filter(row => row.date === date);
 
@@ -83,6 +85,7 @@ export async function fetchHistory(spreadsheetId: string, tabTitle: string, date
     count: data.length,
     totalQty: data.reduce((s, r) => s + (r.totalQty || 0), 0),
     totalAmount: data.reduce((s, r) => s + (r.total || 0), 0),
+    freebiesAmount: data.reduce((s, r) => s + (r.freebiesAmount || 0), 0),
     byPayment: data.reduce<Record<string, number>>((acc, r) => {
       acc[r.payment] = (acc[r.payment] || 0) + (r.total || 0);
       return acc;

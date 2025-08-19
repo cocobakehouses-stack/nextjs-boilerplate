@@ -1,53 +1,77 @@
 // app/api/orders/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import {
-  ALLOWED_TABS,
-  getAuth,
-  ensureSheetExists,
-  toBangkokDateString,
-} from '@/app/lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type Line = { name: string; qty: number; price: number };
 type Body = {
-  location: string;                 // เช่น 'FLAGSHIP' | 'SINDHORN' | 'CHIN3'
-  billNo?: string;                  // ไม่ส่งมา → auto 01,02,… ต่อวัน/สาขา
-  date?: string;                    // 'YYYY-MM-DD'
-  time?: string;                    // 'HH:MM' หรือ 'HH:MM:SS'
+  location: string;
+  billNo?: string;
+  date?: string;
+  time?: string;
   payment: 'cash' | 'promptpay';
   items: Line[];
   freebies?: Line[];
-  total: number;                    // ยอดสุทธิหลังหักของแถมแล้ว
+  total: number;
 };
 
 const TZ = 'Asia/Bangkok';
+const ALLOWED_TABS = new Set(['FLAGSHIP', 'SINDHORN', 'CHIN3', 'ORDERS']);
 
+function getAuth() {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!;
+  const keyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '';
+  const key = keyRaw.includes('\\n') ? keyRaw.replace(/\\n/g, '\n') : keyRaw;
+  const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
+  return new google.auth.JWT(email, undefined, key, scopes);
+}
+
+function nowDateTimeBangkok() {
+  const now = new Date();
+  const date = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(now);
+  const time = new Intl.DateTimeFormat('th-TH', {
+    timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(now).replace(/\./g, ':');
+  return { date, time };
+}
 function normalizeTime(t?: string) {
   if (!t) return undefined;
   if (/^\d{2}:\d{2}$/.test(t)) return `${t}:00`;
   if (/^\d{2}:\d{2}:\d{2}$/.test(t)) return t;
   return undefined;
 }
-function nowTimeBangkok() {
-  const now = new Date();
-  return new Intl.DateTimeFormat('th-TH', {
-    timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).format(now).replace(/\./g, ':');
-}
-function pad2(n: number) {
-  return String(n).padStart(2, '0');
+function pad2(n: number) { return String(n).padStart(2, '0'); }
+
+async function ensureSheetExists(sheets: any, spreadsheetId: string, title: string) {
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
+  const exists = (meta.data.sheets ?? []).some((s: any) => s.properties?.title === title);
+  if (exists) return;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+  });
+
+  // เพิ่มหัวคอลัมน์ A:I (เพิ่ม I: FreebiesAmount)
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${title}!A1:I1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[ 'Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount' ]],
+    },
+  });
 }
 
-async function getNextBillNoForDate(
-  sheets: any, spreadsheetId: string, title: string, date: string
-) {
+async function getNextBillNoForDate(sheets: any, spreadsheetId: string, title: string, date: string) {
   const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${title}!A:C` });
-  const rows: string[][] = res.data.values || [];
+  const rows = res.data.values || [];
+  const dataRows = rows.slice(1);
+
   let maxNo = 0;
-  for (const r of rows.slice(1)) {
+  for (const r of dataRows) {
     const rowDate = r[0];
     const bill = (r[2] || '').toString().trim();
     if (rowDate === date && bill) {
@@ -60,17 +84,7 @@ async function getNextBillNoForDate(
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as Body;
-    const {
-      location,
-      billNo,
-      date,
-      time,
-      payment,
-      items,
-      freebies = [],
-      total,
-    } = body;
+    const { location, billNo, date, time, payment, items, freebies = [], total } = (await req.json()) as Body;
 
     if (!location || !items?.length || !payment || typeof total !== 'number') {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
@@ -81,27 +95,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid location/tab' }, { status: 400 });
     }
 
-    const auth = getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
+    const sheets = google.sheets({ version: 'v4', auth: getAuth() });
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
-    // ให้มีหัวตาราง A:I (เพิ่มคอลัมน์ I: FreebiesAmount)
+
+    let useDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : nowDateTimeBangkok().date;
+    let useTime = normalizeTime(time) || nowDateTimeBangkok().time;
+
     await ensureSheetExists(sheets, spreadsheetId, tabTitle);
 
-    // วันที่/เวลา
-    const useDate = /^\d{4}-\d{2}-\d{2}$/.test(date ?? '') ? (date as string) : toBangkokDateString();
-    const useTime = normalizeTime(time) ?? nowTimeBangkok();
-
-    // หา bill ถ้าไม่ส่งมา
     let useBillNo = (billNo ?? '').trim();
     if (!useBillNo) useBillNo = await getNextBillNoForDate(sheets, spreadsheetId, tabTitle, useDate);
 
-    // เขียนคอลัมน์
     const itemsText = items.map(i => `${i.name} x${i.qty}`).join('; ');
     const freebiesText = (freebies ?? []).map(f => `${f.name} x${f.qty}`).join('; ');
     const totalQty = items.reduce((s, i) => s + (i.qty || 0), 0);
-
-    // ⬅️ NEW: รวมยอดของแถม (ราคา * จำนวน)
-    const freebiesAmount = (freebies ?? []).reduce((s, f) => s + (Number(f.price) || 0) * (Number(f.qty) || 0), 0);
+    const freebiesValue = (freebies ?? []).reduce((s, f) => s + (Number(f.price) || 0) * (Number(f.qty) || 0), 0);
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -109,30 +117,22 @@ export async function POST(req: Request) {
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [[
-          useDate,                      // A: Date
-          useTime,                      // B: Time
-          useBillNo,                    // C: BillNo
-          itemsText,                    // D: Items
-          freebiesText,                 // E: Freebies
-          String(totalQty),             // F: TotalQty
-          payment,                      // G: Payment
-          Number(total).toFixed(2),     // H: Total (หลังหักแถม)
-          Number(freebiesAmount).toFixed(2), // I: FreebiesAmount  ⬅️ NEW
+          useDate,                  // A
+          useTime,                  // B
+          useBillNo,                // C
+          itemsText,                // D
+          freebiesText,             // E
+          String(totalQty),         // F
+          payment,                  // G
+          Number(total).toFixed(2), // H
+          Number(freebiesValue).toFixed(2), // I: FreebiesAmount
         ]],
       },
     });
 
     return NextResponse.json({
       ok: true,
-      saved: {
-        date: useDate,
-        time: useTime,
-        billNo: useBillNo,
-        payment,
-        total: Number(total).toFixed(2),
-        freebiesAmount: Number(freebiesAmount).toFixed(2),
-        tab: tabTitle,
-      },
+      saved: { date: useDate, time: useTime, billNo: useBillNo, payment, total: Number(total).toFixed(2), tab: tabTitle, freebiesAmount: freebiesValue },
     });
   } catch (e: any) {
     console.error('POST /api/orders -> Sheets error', e?.message || e);

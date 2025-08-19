@@ -1,6 +1,7 @@
+// app/history/page.tsx
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 type Row = {
@@ -8,7 +9,7 @@ type Row = {
   freebies: string; totalQty: number; payment: string; total: number;
 };
 
-function ClientHistory() {
+function Inner() {
   const sp = useSearchParams();
   const [location, setLocation] = useState(sp.get('location') || 'FLAGSHIP');
   const [date, setDate] = useState(sp.get('date') || new Date().toISOString().slice(0,10));
@@ -18,28 +19,22 @@ function ClientHistory() {
 
   const load = async () => {
     setLoading(true);
-    try {
-      const q = new URLSearchParams({ location, date }).toString();
-      const res = await fetch(`/api/history?${q}`, { cache: 'no-store' });
-      const data = await res.json();
-      if (res.ok) {
-        setRows(data.rows || []);
-        setTotals(data.totals || {count:0,totalQty:0,totalAmount:0,byPayment:{}});
-      } else {
-        alert(data.error || 'Load failed');
-        setRows([]);
-        setTotals({count:0,totalQty:0,totalAmount:0,byPayment:{}});
-      }
-    } catch (e:any) {
-      alert(e?.message || 'Network error');
-    } finally {
-      setLoading(false);
+    const q = new URLSearchParams({ location, date }).toString();
+    const res = await fetch(`/api/history?${q}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (res.ok) {
+      setRows(data.rows || []);
+      setTotals(data.totals || {count:0,totalQty:0,totalAmount:0,byPayment:{}});
+    } else {
+      alert(data.error || 'Load failed');
     }
+    setLoading(false);
   };
 
   useEffect(() => {
     const q = new URLSearchParams({ location, date }).toString();
-    window.history.replaceState(null, '', `/history?${q}`);
+    const url = `/history?${q}`;
+    window.history.replaceState(null, '', url);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location, date]);
@@ -55,6 +50,7 @@ function ClientHistory() {
             <option value="FLAGSHIP">หน้าร้าน</option>
             <option value="SINDHORN">สินธร</option>
             <option value="CHIN3">ชินวัตร 3</option>
+            <option value="ORDERS">ORDERS (รวม)</option>
           </select>
         </div>
         <div>
@@ -62,12 +58,20 @@ function ClientHistory() {
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="rounded border px-3 py-2 bg-white" />
         </div>
         <div className="ml-auto flex gap-2">
-          <a className="px-4 py-2 rounded-lg border bg-white"
-             href={`/api/history/csv?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
-             target="_blank" rel="noreferrer">Download CSV</a>
-          <a className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0]"
-             href={`/api/history/pdf?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
-             target="_blank" rel="noreferrer">Download PDF</a>
+          <a
+            className="px-4 py-2 rounded-lg border bg-white"
+            href={`/api/history/csv?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
+            target="_blank" rel="noreferrer"
+          >
+            Download CSV
+          </a>
+          <a
+            className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0]"
+            href={`/api/history/pdf?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
+            target="_blank" rel="noreferrer"
+          >
+            Download PDF
+          </a>
         </div>
       </div>
 
@@ -123,8 +127,8 @@ function ClientHistory() {
 
 export default function HistoryPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen p-4 sm:p-6 bg-[#fffff0]"><div>Loading…</div></main>}>
-      <ClientHistory />
+    <Suspense fallback={<main className="min-h-screen p-6">Loading…</main>}>
+      <Inner />
     </Suspense>
   );
 }

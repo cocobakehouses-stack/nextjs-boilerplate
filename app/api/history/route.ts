@@ -1,6 +1,6 @@
 // app/api/history/route.ts
 import { NextResponse } from 'next/server';
-import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '@/app/lib/sheets';
+import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,8 +16,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
     }
 
-    const { rows, totals } = await fetchHistory(spreadsheetId, location, date);
-    return NextResponse.json({ rows, totals }, { headers: { 'Cache-Control': 'no-store' } });
+    const data = await fetchHistory(spreadsheetId, location, date);
+    return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {
     console.error('GET /api/history error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });

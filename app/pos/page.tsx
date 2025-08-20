@@ -48,25 +48,26 @@ export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoadingProducts(true);
-        const res = await fetch('/api/products', { cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        const list: Product[] = data?.products || [];
-        if (list.length > 0) {
-          setProducts(list);
-        } else {
-          setProducts(FALLBACK_PRODUCTS);
-        }
-      } catch {
+  const loadProducts = async () => {
+    try {
+      setLoadingProducts(true);
+      const res = await fetch('/api/products', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      const list: Product[] = data?.products || [];
+      if (list.length > 0) {
+        setProducts(list);
+      } else {
         setProducts(FALLBACK_PRODUCTS);
-      } finally {
-        setLoadingProducts(false);
       }
-    };
-    load();
+    } catch {
+      setProducts(FALLBACK_PRODUCTS);
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProducts();
   }, []);
 
   // Freebies
@@ -158,6 +159,36 @@ export default function POSPage() {
   };
   const removeFreebie = (name: string) => setFreebies((prev) => prev.filter((f) => f.name !== name));
 
+  // ---------- เพิ่มเมนูใหม่ (เขียนลงแท็บ Products) ----------
+  const [newName, setNewName] = useState('');
+  const [newPrice, setNewPrice] = useState('');
+
+  const addNewMenu = async () => {
+    const name = newName.trim();
+    const price = Number(String(newPrice).trim());
+    if (!name || !Number.isFinite(price) || price <= 0) {
+      alert('กรุณากรอกชื่อและราคาที่ถูกต้อง');
+      return;
+    }
+    try {
+      setLoadingProducts(true);
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, price }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Add failed');
+      setNewName('');
+      setNewPrice('');
+      await loadProducts(); // refresh รายการจากชีต
+    } catch (e:any) {
+      alert(e?.message || 'Add failed');
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
   // ---------- Navigation ----------
   const goSummary = () => {
     if (!location) return alert('กรุณาเลือกสถานที่ก่อนใช้งาน');
@@ -236,6 +267,45 @@ export default function POSPage() {
           {/* CART */}
           {step === 'cart' && (
             <>
+              {/* ✅ เพิ่มเมนูใหม่ */}
+              <div className="bg-white border rounded-xl p-4 mb-5">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold">เพิ่มเมนูใหม่ (บันทึกลง Google Sheets)</div>
+                  <button
+                    onClick={loadProducts}
+                    className="px-3 py-1 rounded-lg border bg-white text-sm"
+                    disabled={loadingProducts}
+                  >
+                    รีเฟรชเมนู
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_auto] gap-3 mt-3">
+                  <input
+                    className="rounded border px-3 py-2"
+                    placeholder="ชื่อสินค้า"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                  />
+                  <input
+                    className="rounded border px-3 py-2"
+                    placeholder="ราคา เช่น 129"
+                    inputMode="decimal"
+                    value={newPrice}
+                    onChange={(e) => setNewPrice(e.target.value)}
+                  />
+                  <button
+                    onClick={addNewMenu}
+                    className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40"
+                    disabled={loadingProducts}
+                  >
+                    เพิ่มเมนู
+                  </button>
+                </div>
+                <div className="text-xs text-gray-500 mt-2">
+                  * ระบบจะเพิ่มลงแท็บ <b>Products</b> ใน Google Sheets แล้วรีเฟรชรายการให้อัตโนมัติ
+                </div>
+              </div>
+
               {loadingProducts ? (
                 <div className="text-gray-600 mb-4">Loading products…</div>
               ) : null}
@@ -438,7 +508,7 @@ export default function POSPage() {
                 <button
                   onClick={async () => {
                     if (!location || !payment) return;
-                    // ส่งไป /api/orders (เหมือนเดิม)
+                    // ส่งไป /api/orders
                     const itemsPayload: Line[] = cart.map((i) => ({ name: i.name, qty: i.quantity, price: i.price }));
                     const body = {
                       location,

@@ -1,37 +1,53 @@
+// app/components/LocationPicker.tsx
 'use client';
 
-import { LOCATIONS, type LocationId } from '../../data/locations';
+import { useEffect, useState } from 'react';
+
+type LocationRow = { id: string; label: string };
 
 type Props = {
-  value: LocationId | null;
-  onChange: (loc: LocationId) => void;
+  value: string | null;
+  onChange: (id: string) => void;
 };
 
 export default function LocationPicker({ value, onChange }: Props) {
-  // ถ้าเลือกไว้แล้ว ไม่ต้องโชว์
-  if (value) return null;
+  const [locs, setLocs] = useState<LocationRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const choose = (loc: LocationId) => {
-    localStorage.setItem('pos_location', loc);
-    onChange(loc);
+  const load = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/locations', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      const apiList: LocationRow[] = data?.locations || [];
+      setLocs(apiList);
+    } catch {
+      setLocs([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  useEffect(() => { load(); }, []);
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6">
-      <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
-        <h2 className="text-2xl font-bold text-center mb-4">เลือกสถานที่ขาย</h2>
-        <div className="grid gap-3">
-          {LOCATIONS.map((l) => (
-            <button
-              key={l.id}
-              onClick={() => choose(l.id)}
-              className="w-full py-4 text-lg font-semibold rounded-xl border hover:bg-gray-50"
-            >
-              {l.label} <span className="text-gray-500 text-base">({l.id})</span>
-            </button>
+    <div className="mb-4 flex items-end gap-2">
+      <div>
+        <label className="block text-sm text-gray-600">เลือกสถานที่</label>
+        <select
+          className="rounded border px-3 py-2 bg-white"
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="" disabled>— เลือกสถานที่ —</option>
+          {locs.map((l) => (
+            <option key={l.id} value={l.id}>{l.label} ({l.id})</option>
           ))}
-        </div>
+        </select>
       </div>
+      <button onClick={load} className="px-3 py-2 rounded-lg border bg-white text-sm">
+        โหลดใหม่
+      </button>
     </div>
   );
 }

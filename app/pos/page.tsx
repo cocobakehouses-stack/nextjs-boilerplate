@@ -20,15 +20,20 @@ function toDateString(d: Date) {
 }
 function toTimeString(d: Date) {
   return new Intl.DateTimeFormat('th-TH', {
-    timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).format(d).replace(/\./g, ':');
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+    .format(d)
+    .replace(/\./g, ':');
 }
 
 function classNames(...xs: (string | false | null | undefined)[]) {
   return xs.filter(Boolean).join(' ');
 }
 
-// ---------- Page ----------
 export default function POSPage() {
   // Location
   const [location, setLocation] = useState<LocationId | null>(null);
@@ -64,29 +69,27 @@ export default function POSPage() {
   } | null>(null);
 
   // ---------- Products: auto-sort + grouping ----------
-  // ขณะนี้ใช้เฉพาะ BASE_PRODUCTS (ตัด add menu ออก)
   const allProducts = useMemo<Product[]>(() => {
     const merged = [...BASE_PRODUCTS];
     merged.sort((a, b) => b.price - a.price); // สูง → ต่ำ
     return merged;
   }, []);
 
-  // Grouping ตามช่วงราคา
-const grouped = useMemo(() => {
-  const premium: Product[] = [];
-  const levain: Product[] = [];
-  const soft: Product[] = [];
-  for (const p of allProducts) {
-    if (p.price > 135) premium.push(p);
-    else if (p.price > 125 && p.price <= 135) levain.push(p); // <-- ปิดวงเล็บให้ครบ
-    else if (p.price <= 109) soft.push(p);
-    // ถ้าอยากให้ช่วง 110–125 เข้าหมวด Soft ให้เปลี่ยนเป็น: else soft.push(p);
-  }
-  return { premium, levain, soft };
-}, [allProducts]);
+  const grouped = useMemo(() => {
+    const premium: Product[] = [];
+    const levain: Product[] = [];
+    const soft: Product[] = [];
+    for (const p of allProducts) {
+      if (p.price > 135) premium.push(p);
+      else if (p.price > 125 && p.price <= 135) levain.push(p);
+      else if (p.price <= 109) soft.push(p);
+      // ช่วง 110–125 จะไม่เข้าหมวด ถ้าต้องการให้เข้าหมวด Soft ให้เปลี่ยนเป็น: else soft.push(p);
+    }
+    return { premium, levain, soft };
+  }, [allProducts]);
 
   // ---------- Cart operations ----------
-const addToCart = (p: Product) => {
+  const addToCart = (p: Product) => {
     setCart((prev) => {
       const idx = prev.findIndex((i) => i.id === p.id);
       if (idx >= 0) {
@@ -111,10 +114,15 @@ const addToCart = (p: Product) => {
     setCart((prev) => prev.filter((i) => i.id !== id));
   };
 
-
   // ---------- Totals ----------
-  const subtotal = useMemo(() => cart.reduce((s, i) => s + i.price * i.quantity, 0), [cart]);
-  const freebiesValue = useMemo(() => freebies.reduce((s, f) => s + f.price * f.qty, 0), [freebies]);
+  const subtotal = useMemo(
+    () => cart.reduce((s, i) => s + i.price * i.quantity, 0),
+    [cart]
+  );
+  const freebiesValue = useMemo(
+    () => freebies.reduce((s, f) => s + f.price * f.qty, 0),
+    [freebies]
+  );
   const totalQty = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
   const netTotal = useMemo(() => Math.max(0, subtotal - freebiesValue), [subtotal, freebiesValue]);
 
@@ -133,9 +141,14 @@ const addToCart = (p: Product) => {
     });
   };
   const changeFreebieQty = (name: string, qty: number) => {
-    setFreebies((prev) => (qty <= 0 ? prev.filter((f) => f.name !== name) : prev.map((f) => (f.name === name ? { ...f, qty } : f))));
+    setFreebies((prev) =>
+      qty <= 0
+        ? prev.filter((f) => f.name !== name)
+        : prev.map((f) => (f.name === name ? { ...f, qty } : f))
+    );
   };
-  const removeFreebie = (name: string) => setFreebies((prev) => prev.filter((f) => f.name !== name));
+  const removeFreebie = (name: string) =>
+    setFreebies((prev) => prev.filter((f) => f.name !== name));
 
   // ---------- Navigation ----------
   const goSummary = () => {
@@ -153,19 +166,32 @@ const addToCart = (p: Product) => {
   };
 
   const resetForNewBill = () => {
-    setCart([]); setAdded({}); setPayment(null); setFreebies([]); setLastSaved(null); setStep('cart');
+    setCart([]);
+    setAdded({});
+    setPayment(null);
+    setFreebies([]);
+    setLastSaved(null);
+    setStep('cart');
   };
 
   // ---------- API submit ----------
   const submitOrder = async () => {
     if (!location || !payment) return;
 
-    const itemsPayload: Line[] = cart.map((i) => ({ name: i.name, qty: i.quantity, price: i.price }));
+    const itemsPayload: Line[] = cart.map((i) => ({
+      name: i.name,
+      qty: i.quantity,
+      price: i.price,
+    }));
 
     const body = {
       location,
       date: dateStr,
-      time: /^\d{2}:\d{2}(:\d{2})?$/.test(timeStr) ? (timeStr.length === 5 ? `${timeStr}:00` : timeStr) : toTimeString(new Date()),
+      time: /^\d{2}:\d{2}(:\d{2})?$/.test(timeStr)
+        ? timeStr.length === 5
+          ? `${timeStr}:00`
+          : timeStr
+        : toTimeString(new Date()),
       payment,
       items: itemsPayload,
       freebies,
@@ -211,7 +237,10 @@ const addToCart = (p: Product) => {
             Location: <b>{location ?? '— เลือกก่อนใช้งาน —'}</b>
           </span>
           <button
-            onClick={() => { localStorage.removeItem('pos_location'); setLocation(null); }}
+            onClick={() => {
+              localStorage.removeItem('pos_location');
+              setLocation(null);
+            }}
             className="px-3 py-1 rounded-lg border hover:bg-white"
           >
             เปลี่ยนสถานที่
@@ -219,8 +248,11 @@ const addToCart = (p: Product) => {
           {location && (
             <a
               className="px-3 py-1 rounded-lg border hover:bg-white"
-              target="_blank" rel="noreferrer"
-              href={`/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(dateStr)}`}
+              target="_blank"
+              rel="noreferrer"
+              href={`/history?location=${encodeURIComponent(
+                location
+              )}&date=${encodeURIComponent(dateStr)}`}
               title="Show history (open in new tab)"
             >
               Show history
@@ -231,6 +263,7 @@ const addToCart = (p: Product) => {
 
       {/* Location Gate */}
       <LocationPicker value={location} onChange={(loc) => setLocation(loc)} />
+
       {!location ? null : (
         <>
           {/* Stepper */}
@@ -246,7 +279,13 @@ const addToCart = (p: Product) => {
                   {i + 1}
                 </div>
                 <span className={step === s ? 'font-semibold' : ''}>
-                  {s === 'cart' ? 'Cart' : s === 'summary' ? 'Summary' : s === 'confirm' ? 'Confirm' : 'Success'}
+                  {s === 'cart'
+                    ? 'Cart'
+                    : s === 'summary'
+                    ? 'Summary'
+                    : s === 'confirm'
+                    ? 'Confirm'
+                    : 'Success'}
                 </span>
               </div>
             ))}
@@ -265,7 +304,10 @@ const addToCart = (p: Product) => {
                     <h2 className="text-xl font-bold mb-3">{title}</h2>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                       {items.map((p) => (
-                        <div key={p.id} className="border rounded-xl p-4 flex flex-col items-center bg-white">
+                        <div
+                          key={p.id}
+                          className="border rounded-xl p-4 flex flex-col items-center bg-white"
+                        >
                           <h3 className="text-lg font-semibold text-center">{p.name}</h3>
                           <p className="text-gray-600 mb-3">{p.price} THB</p>
                           <button
@@ -284,78 +326,81 @@ const addToCart = (p: Product) => {
                 )
               )}
 
-            {/* Sticky footer: Cart + ไปสรุปออเดอร์ */}
-<div
-  className="fixed bottom-0 left-0 right-0 z-50 bg-[#fffff0]/95 backdrop-blur border-t shadow-lg"
-  style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
->
-  <div className="mx-auto max-w-6xl p-3 flex items-center justify-between gap-3">
-    <div className="flex items-center gap-3">
-      <button
-        onClick={() => setCartOpen((s) => !s)}
-        className="px-3 py-2 rounded-lg border bg-white"
-      >
-        {cartOpen ? 'ปิดตะกร้า' : `Cart (${totalQty})`}
-      </button>
-      <div className="text-sm">
-        รวมจำนวน: <b>{totalQty}</b> | ยอดรวม: <b>{subtotal} THB</b>
-      </div>
-    </div>
-    <button
-      onClick={goSummary}
-      className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40"
-      disabled={!location || cart.length === 0}
-    >
-      ไปสรุปออเดอร์
-    </button>
-  </div>
-
-  {/* Cart drawer (inline) */}
-  {cartOpen && (
-    <div className="mx-auto max-w-6xl border-t bg-white">
-      <div className="p-3 max-h-60 overflow-y-auto">
-        {cart.length === 0 ? (
-          <div className="text-gray-600">Cart is empty</div>
-        ) : (
-          <div className="space-y-3">
-            {cart.map((i) => (
-              <div key={i.id} className="flex justify-between items-center border-b pb-2">
-                <div>
-                  <div className="font-semibold">{i.name}</div>
-                  <div className="text-sm text-gray-600">
-                    {i.price} THB × {i.quantity}
+              {/* Sticky footer: Cart + ไปสรุปออเดอร์ */}
+              <div className="fixed bottom-0 left-0 right-0 bg-[#fffff0]/95 backdrop-blur border-t">
+                <div className="mx-auto max-w-6xl p-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setCartOpen((s) => !s)}
+                      className="px-3 py-2 rounded-lg border bg-white"
+                    >
+                      {cartOpen ? 'ปิดตะกร้า' : `Cart (${totalQty})`}
+                    </button>
+                    <div className="text-sm">
+                      รวมจำนวน: <b>{totalQty}</b> | ยอดรวม: <b>{subtotal} THB</b>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => changeQty(i.id, i.quantity - 1)}
-                    className="px-2 py-1 border rounded"
+                    onClick={goSummary}
+                    className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40"
+                    disabled={!location || cart.length === 0}
                   >
-                    -
-                  </button>
-                  <span>{i.quantity}</span>
-                  <button
-                    onClick={() => changeQty(i.id, i.quantity + 1)}
-                    className="px-2 py-1 border rounded"
-                  >
-                    +
-                  </button>
-                  <button
-                    onClick={() => removeFromCart(i.id)}
-                    className="px-3 py-1 bg-red-500 text-white rounded"
-                  >
-                    Remove
+                    ไปสรุปออเดอร์
                   </button>
                 </div>
+
+                {/* Cart drawer (inline) */}
+                {cartOpen && (
+                  <div className="mx-auto max-w-6xl border-t bg-white">
+                    <div className="p-3">
+                      {cart.length === 0 ? (
+                        <div className="text-gray-600">Cart is empty</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {cart.map((i) => (
+                            <div
+                              key={i.id}
+                              className="flex justify-between items-center border-b pb-2"
+                            >
+                              <div>
+                                <div className="font-semibold">{i.name}</div>
+                                <div className="text-sm text-gray-600">
+                                  {i.price} THB × {i.quantity}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => changeQty(i.id, i.quantity - 1)}
+                                  className="px-2 py-1 border rounded"
+                                >
+                                  -
+                                </button>
+                                <span>{i.quantity}</span>
+                                <button
+                                  onClick={() => changeQty(i.id, i.quantity + 1)}
+                                  className="px-2 py-1 border rounded"
+                                >
+                                  +
+                                </button>
+                                <button
+                                  onClick={() => removeFromCart(i.id)}
+                                  className="px-3 py-1 bg-red-500 text-white rounded"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )}
-</div>
-<div className="h-36" />
+              {/* spacer ให้ footer ไม่บัง content */}
+              <div className="h-36" />
+            </>
+          )}
 
           {/* SUMMARY */}
           {step === 'summary' && (
@@ -375,14 +420,22 @@ const addToCart = (p: Product) => {
                   <div className="space-y-2">
                     {cart.map((i) => (
                       <div key={i.id} className="flex justify-between text-sm border-b pb-1">
-                        <div>{i.name} × {i.quantity}</div>
+                        <div>
+                          {i.name} × {i.quantity}
+                        </div>
                         <div>{i.price * i.quantity} THB</div>
                       </div>
                     ))}
                     <div className="pt-2 text-right">
-                      <div>Subtotal: <b>{subtotal}</b> THB</div>
-                      <div className="text-green-700">Freebies (-): <b>{freebiesValue}</b> THB</div>
-                      <div className="text-lg">Total: <b>{netTotal}</b> THB</div>
+                      <div>
+                        Subtotal: <b>{subtotal}</b> THB
+                      </div>
+                      <div className="text-green-700">
+                        Freebies (-): <b>{freebiesValue}</b> THB
+                      </div>
+                      <div className="text-lg">
+                        Total: <b>{netTotal}</b> THB
+                      </div>
                     </div>
                   </div>
                 )}
@@ -394,13 +447,23 @@ const addToCart = (p: Product) => {
                 <div className="flex gap-2 mb-4">
                   <button
                     onClick={() => setPayment('cash')}
-                    className={classNames('px-4 py-2 rounded-lg border', payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0] border-[#ac0000]' : 'hover:bg-gray-50')}
+                    className={classNames(
+                      'px-4 py-2 rounded-lg border',
+                      payment === 'cash'
+                        ? 'bg-[#ac0000] text-[#fffff0] border-[#ac0000]'
+                        : 'hover:bg-gray-50'
+                    )}
                   >
                     เงินสด
                   </button>
                   <button
                     onClick={() => setPayment('promptpay')}
-                    className={classNames('px-4 py-2 rounded-lg border', payment === 'promptpay' ? 'bg-[#ac0000] text-[#fffff0] border-[#ac0000]' : 'hover:bg-gray-50')}
+                    className={classNames(
+                      'px-4 py-2 rounded-lg border',
+                      payment === 'promptpay'
+                        ? 'bg-[#ac0000] text-[#fffff0] border-[#ac0000]'
+                        : 'hover:bg-gray-50'
+                    )}
                   >
                     พร้อมเพย์
                   </button>
@@ -419,7 +482,10 @@ const addToCart = (p: Product) => {
                       </option>
                     ))}
                   </select>
-                  <button onClick={addFreebie} className="px-3 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90">
+                  <button
+                    onClick={addFreebie}
+                    className="px-3 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90"
+                  >
                     เพิ่มของแถม
                   </button>
                 </div>
@@ -427,13 +493,34 @@ const addToCart = (p: Product) => {
                 {freebies.length > 0 && (
                   <div className="mt-3 space-y-2">
                     {freebies.map((f) => (
-                      <div key={f.name} className="flex items-center justify-between border-b pb-1">
-                        <div className="text-sm">{f.name} × {f.qty} <span className="text-gray-500">({f.price} THB/ชิ้น)</span></div>
+                      <div
+                        key={f.name}
+                        className="flex items-center justify-between border-b pb-1"
+                      >
+                        <div className="text-sm">
+                          {f.name} × {f.qty}{' '}
+                          <span className="text-gray-500">({f.price} THB/ชิ้น)</span>
+                        </div>
                         <div className="flex items-center gap-2">
-                          <button className="px-2 py-1 border rounded" onClick={() => changeFreebieQty(f.name, f.qty - 1)}>-</button>
+                          <button
+                            className="px-2 py-1 border rounded"
+                            onClick={() => changeFreebieQty(f.name, f.qty - 1)}
+                          >
+                            -
+                          </button>
                           <span>{f.qty}</span>
-                          <button className="px-2 py-1 border rounded" onClick={() => changeFreebieQty(f.name, f.qty + 1)}>+</button>
-                          <button className="px-3 py-1 bg-red-500 text-white rounded" onClick={() => removeFreebie(f.name)}>Remove</button>
+                          <button
+                            className="px-2 py-1 border rounded"
+                            onClick={() => changeFreebieQty(f.name, f.qty + 1)}
+                          >
+                            +
+                          </button>
+                          <button
+                            className="px-3 py-1 bg-red-500 text-white rounded"
+                            onClick={() => removeFreebie(f.name)}
+                          >
+                            Remove
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -441,8 +528,18 @@ const addToCart = (p: Product) => {
                 )}
 
                 <div className="mt-6 flex justify-between">
-                  <button onClick={() => setStep('cart')} className="px-4 py-2 rounded-lg border hover:bg-gray-50">กลับไปแก้</button>
-                  <button onClick={goConfirm} className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90">ยืนยัน</button>
+                  <button
+                    onClick={() => setStep('cart')}
+                    className="px-4 py-2 rounded-lg border hover:bg-gray-50"
+                  >
+                    กลับไปแก้
+                  </button>
+                  <button
+                    onClick={goConfirm}
+                    className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90"
+                  >
+                    ยืนยัน
+                  </button>
                 </div>
               </div>
             </div>
@@ -454,20 +551,37 @@ const addToCart = (p: Product) => {
               <h2 className="text-2xl font-bold mb-4">ยืนยันส่งข้อมูล</h2>
 
               <div className="space-y-2 text-sm">
-                <div><b>BillNo:</b> (ระบบจะออกให้)</div>
-                <div><b>Time:</b> {timeStr}</div>
-                <div><b>Date:</b> {dateStr}</div>
-                <div><b>Payment:</b> {payment}</div>
-                <div><b>Total:</b> {netTotal} THB</div>
+                <div>
+                  <b>BillNo:</b> (ระบบจะออกให้)
+                </div>
+                <div>
+                  <b>Time:</b> {timeStr}
+                </div>
+                <div>
+                  <b>Date:</b> {dateStr}
+                </div>
+                <div>
+                  <b>Payment:</b> {payment}
+                </div>
+                <div>
+                  <b>Total:</b> {netTotal} THB
+                </div>
               </div>
 
               <div className="mt-6 flex gap-2">
-                <button onClick={() => setStep('summary')} className="px-4 py-2 rounded-lg border hover:bg-gray-50" disabled={isSubmitting}>
+                <button
+                  onClick={() => setStep('summary')}
+                  className="px-4 py-2 rounded-lg border hover:bg-gray-50"
+                  disabled={isSubmitting}
+                >
                   กลับไปแก้
                 </button>
                 <button
                   onClick={submitOrder}
-                  className={classNames('px-4 py-2 rounded-lg text-[#fffff0]', isSubmitting ? 'bg-gray-400' : 'bg-[#ac0000] hover:opacity-90')}
+                  className={classNames(
+                    'px-4 py-2 rounded-lg text-[#fffff0]',
+                    isSubmitting ? 'bg-gray-400' : 'bg-[#ac0000] hover:opacity-90'
+                  )}
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? 'กำลังบันทึก…' : 'ยืนยันส่งไป Google Sheets'}
@@ -481,14 +595,27 @@ const addToCart = (p: Product) => {
             <div className="bg-white rounded-xl p-6 border max-w-xl">
               <h2 className="text-2xl font-bold mb-4 text-green-700">บันทึกสำเร็จ 🎉</h2>
               <div className="space-y-2 text-sm">
-                <div><b>BillNo:</b> {lastSaved.billNo}</div>
-                <div><b>Time:</b> {lastSaved.time}</div>
-                <div><b>Date:</b> {lastSaved.date}</div>
-                <div><b>Payment:</b> {lastSaved.payment}</div>
-                <div><b>Total:</b> {lastSaved.total} THB</div>
+                <div>
+                  <b>BillNo:</b> {lastSaved.billNo}
+                </div>
+                <div>
+                  <b>Time:</b> {lastSaved.time}
+                </div>
+                <div>
+                  <b>Date:</b> {lastSaved.date}
+                </div>
+                <div>
+                  <b>Payment:</b> {lastSaved.payment}
+                </div>
+                <div>
+                  <b>Total:</b> {lastSaved.total} THB
+                </div>
               </div>
               <div className="mt-6">
-                <button onClick={resetForNewBill} className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90">
+                <button
+                  onClick={resetForNewBill}
+                  className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90"
+                >
                   เริ่มบิลใหม่
                 </button>
               </div>

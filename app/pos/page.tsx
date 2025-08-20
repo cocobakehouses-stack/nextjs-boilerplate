@@ -8,10 +8,10 @@ export const dynamic = 'force-dynamic';
 
 type Line = { name: string; qty: number; price: number };
 type Body = {
-  location: string;
+  location: string;                 // จะถูก upper-case และใช้เป็นชื่อแท็บ
   billNo?: string;
-  date?: string;
-  time?: string;
+  date?: string;                    // YYYY-MM-DD
+  time?: string;                    // HH:mm หรือ HH:mm:ss
   payment: 'cash' | 'promptpay';
   items: Line[];
   freebies?: Line[];
@@ -19,7 +19,9 @@ type Body = {
 };
 
 const TZ = 'Asia/Bangkok';
+const LOCATIONS_TAB = 'Locations';  // A: ID, B: Label (optional)
 
+/** เวลาปัจจุบัน (Bangkok) */
 function nowDateTimeBangkok() {
   const now = new Date();
   const date = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(now);
@@ -36,7 +38,10 @@ function normalizeTime(t?: string) {
 }
 function pad2(n: number) { return String(n).padStart(2, '0'); }
 
-async function getNextBillNoForDate(sheets: any, spreadsheetId: string, title: string, date: string) {
+/** เลขบิลรันต่อในวันเดียวกัน */
+async function getNextBillNoForDate(
+  sheets: any, spreadsheetId: string, title: string, date: string
+) {
   const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${title}!A:C` });
   const rows = res.data.values || [];
   const dataRows = rows.slice(1);
@@ -53,9 +58,39 @@ async function getNextBillNoForDate(sheets: any, spreadsheetId: string, title: s
   return pad2(maxNo + 1);
 }
 
+/** บันทึกลงแท็บ Locations ถ้ายังไม่มีแถวของสาขานี้ */
+async function ensureLocationListed(
+  sheets: any, spreadsheetId: string, id: string, label?: string
+) {
+  // สร้างแท็บ Locations (มีหัวคอลัมน์ A:ID, B:Label) ถ้ายังไม่มี
+  await ensureSheetExists(sheets, spreadsheetId, LOCATIONS_TAB);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId, range: `${LOCATIONS_TAB}!A1:B1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [['ID','Label']] },
+  });
+
+  // โหลดรายการ และเช็คว่ามี id นี้แล้วหรือยัง
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId, range: `${LOCATIONS_TAB}!A:B`,
+  });
+  const rows = (res.data.values || []).slice(1);
+  const exists = rows.some(r => (r?.[0] || '').toString().trim().toUpperCase() === id);
+
+  if (!exists) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${LOCATIONS_TAB}!A:B`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [[id, label || id]] },
+    });
+  }
+}
+
 export async function POST(req: Request) {
   try {
-    const { location, billNo, date, time, payment, items, freebies = [], total } = (await req.json()) as Body;
+    const { location, billNo, date, time, payment, items, freebies = [], total } =
+      (await req.json()) as Body;
 
     if (!location || !items?.length || !payment || typeof total !== 'number') {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
@@ -69,6 +104,9 @@ export async function POST(req: Request) {
     const tabTitle = (location || 'ORDERS').toUpperCase();
     await ensureSheetExists(sheets, spreadsheetId, tabTitle); // จะสร้างพร้อมหัวคอลัมน์ A..I ถ้ายังไม่มี
 
+    // 👉 เติมชื่อสาขาไปแท็บ Locations ถ้ายังไม่เคยมี (label = id โดยปริยาย)
+    await ensureLocationListed(sheets, spreadsheetId, tabTitle, tabTitle);
+
     // วันเวลา + เลขบิล
     const { date: today, time: now } = nowDateTimeBangkok();
     const useDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : today;
@@ -80,7 +118,9 @@ export async function POST(req: Request) {
     const itemsText = items.map(i => `${i.name} x${i.qty}`).join('; ');
     const freebiesText = (freebies ?? []).map(f => `${f.name} x${f.qty}`).join('; ');
     const totalQty = items.reduce((s, i) => s + (i.qty || 0), 0);
-    const freebiesValue = (freebies ?? []).reduce((s, f) => s + (Number(f.price) || 0) * (Number(f.qty) || 0), 0);
+    const freebiesValue = (freebies ?? []).reduce(
+      (s, f) => s + (Number(f.price) || 0) * (Number(f.qty) || 0), 0
+    );
 
     // บันทึกลงชีต (รวม I: FreebiesAmount)
     await sheets.spreadsheets.values.append({

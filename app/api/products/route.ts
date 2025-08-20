@@ -6,7 +6,8 @@ import { getAuth } from '../../lib/sheets';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const PRODUCTS_TAB = 'Products'; // A: id, B: name, C: price
+// ตั้งชื่อแท็บเมนูในชีต (แก้ได้ตามที่ใช้จริง)
+const PRODUCTS_TAB = 'Products'; // คาดหวัง header: A: Name, B: Price
 
 export async function GET() {
   try {
@@ -14,34 +15,25 @@ export async function GET() {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // ให้แน่ใจว่ามีหัวคอลัมน์ A1:C1 (ถ้าไม่มีจะเขียนทับเฉพาะหัว)
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${PRODUCTS_TAB}!A1:C1`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [['id', 'name', 'price']] },
-    });
-
+    // ดึงทั้งแผ่น
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${PRODUCTS_TAB}!A:C`,
+      range: `${PRODUCTS_TAB}!A:B`,
     });
+    const rows = (res.data.values || []).slice(1); // ข้าม header
 
-    const rows = (res.data.values || []).slice(1);
+    // map -> {id, name, price} + กรองช่องว่าง + แปลงราคาเป็น number
     const products = rows
       .map((r, idx) => {
-        const id = Number((r[0] ?? '').toString().trim());
-        const name = (r[1] ?? '').toString().trim();
-        const price = Number((r[2] ?? '').toString().replace(/,/g, ''));
-        return {
-          id: Number.isFinite(id) ? id : idx + 1, // fallback id
-          name,
-          price: Number.isFinite(price) ? price : 0,
-        };
+        const name = (r[0] || '').toString().trim();
+        const price = Number((r[1] || '').toString().replace(/,/g, ''));
+        return name && Number.isFinite(price) && price > 0
+          ? { id: idx + 1, name, price }
+          : null;
       })
-      .filter(p => p.name && p.price > 0);
+      .filter(Boolean) as { id: number; name: string; price: number }[];
 
-    // จัดเรียงราคาสูง → ต่ำ (ให้ UI ได้ลำดับพร้อมใช้)
+    // จัดเรียงราคาสูง -> ต่ำ เหมือนที่หน้า POS เคยทำ
     products.sort((a, b) => b.price - a.price);
 
     return NextResponse.json({ products }, { headers: { 'Cache-Control': 'no-store' } });

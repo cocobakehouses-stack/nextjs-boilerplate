@@ -72,18 +72,18 @@ export default function POSPage() {
   }, []);
 
   // Grouping ตามช่วงราคา
-  const grouped = useMemo(() => {
-    const premium: Product[] = [];
-    const levain: Product[] = [];
-    const soft: Product[] = [];
-    for (const p of allProducts) {
-      if (p.price > 135) premium.push(p);
-      else if (p.price > 125 && p.price <= 135) levain.push(p);
-      else if (p.price <= 109) soft.push(p);
-      // ช่วง 110–125 จะไม่เข้าหมวด ถ้าอยากให้เข้าหมวด Soft ให้เปลี่ยนเป็น `else soft.push(p);`
-    }
-    return { premium, levain, soft };
-  }, [allProducts]);
+const grouped = useMemo(() => {
+  const premium: Product[] = [];
+  const levain: Product[] = [];
+  const soft: Product[] = [];
+  for (const p of allProducts) {
+    if (p.price > 135) premium.push(p);
+    else if (p.price > 125 && p.price <= 135) levain.push(p); // <-- ปิดวงเล็บให้ครบ
+    else if (p.price <= 109) soft.push(p);
+    // ถ้าอยากให้ช่วง 110–125 เข้าหมวด Soft ให้เปลี่ยนเป็น: else soft.push(p);
+  }
+  return { premium, levain, soft };
+}, [allProducts]);
 
   // ---------- Cart operations ----------
 const addToCart = (p: Product) => {

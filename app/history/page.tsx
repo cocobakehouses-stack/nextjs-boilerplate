@@ -14,7 +14,7 @@ function Inner() {
   const [location, setLocation] = useState(sp.get('location') || 'FLAGSHIP');
   const [date, setDate] = useState(sp.get('date') || new Date().toISOString().slice(0,10));
   const [rows, setRows] = useState<Row[]>([]);
-  const [totals, setTotals] = useState<{count:number; totalQty:number; totalAmount:number; freebiesAmount: number; byPayment: Record<string, number>}>({count: 0, totalQty: 0, totalAmount: 0, freebiesAmount: 0, byPayment::{}});
+  const [totals, setTotals] = useState<{count:number; totalQty:number; totalAmount:number; freebiesAmount: number; byPayment: Record<string, number>}>({count: 0, totalQty: 0, totalAmount: 0, freebiesAmount: 0, byPayment:{}});
   const [loading, setLoading] = useState(false);
 
   const load = async () => {

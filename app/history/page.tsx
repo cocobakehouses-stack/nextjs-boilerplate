@@ -9,12 +9,37 @@ type Row = {
   freebies: string; totalQty: number; payment: string; total: number;
 };
 
+// แปลงข้อความ freebies "A x1; B x2" -> รวมยอด/นับชื่อ
+function parseFreebiesText(s: string) {
+  const parts = String(s || '')
+    .split(';')
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  let total = 0;
+  const map: Record<string, number> = {};
+  for (const part of parts) {
+    // รองรับทั้ง "x" และ "×"
+    const m = part.match(/^(.*?)[\s×x]\s*(\d+)$/i);
+    if (!m) continue;
+    const name = m[1].trim();
+    const qty = Number(m[2] || 0);
+    if (!name || !Number.isFinite(qty)) continue;
+    map[name] = (map[name] || 0) + qty;
+    total += qty;
+  }
+  return { total, map };
+}
+
 function Inner() {
   const sp = useSearchParams();
   const [location, setLocation] = useState(sp.get('location') || 'FLAGSHIP');
   const [date, setDate] = useState(sp.get('date') || new Date().toISOString().slice(0,10));
   const [rows, setRows] = useState<Row[]>([]);
-  const [totals, setTotals] = useState<{count:number; totalQty:number; totalAmount:number; freebiesAmount: number; byPayment: Record<string, number>}>({count: 0, totalQty: 0, totalAmount: 0, freebiesAmount: 0, byPayment:{}});
+  const [totals, setTotals] = useState<{
+    count:number; totalQty:number; totalAmount:number; freebiesAmount:number;
+    byPayment: Record<string, number>;
+  }>({count: 0, totalQty: 0, totalAmount: 0, freebiesAmount: 0, byPayment: {}});
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
@@ -23,14 +48,14 @@ function Inner() {
     const res = await fetch(`/api/history?${q}`, { cache: 'no-store' });
     const data = await res.json();
     if (res.ok) {
-  setRows(data.rows || []);
-  setTotals({
-    count: data.totals?.count ?? 0,
-    totalQty: data.totals?.totalQty ?? 0,
-    totalAmount: data.totals?.totalAmount ?? 0,
-    freebiesAmount: data.totals?.freebiesAmount ?? 0, // ⬅️ เพิ่ม fallback
-    byPayment: data.totals?.byPayment ?? {},
-  });
+      setRows(data.rows || []);
+      setTotals({
+        count: data.totals?.count ?? 0,
+        totalQty: data.totals?.totalQty ?? 0,
+        totalAmount: data.totals?.totalAmount ?? 0,
+        freebiesAmount: data.totals?.freebiesAmount ?? 0, // ✅ รวมมูลค่าฟรีบี้จากชีต
+        byPayment: data.totals?.byPayment ?? {},
+      });
     } else {
       alert(data.error || 'Load failed');
     }
@@ -44,6 +69,20 @@ function Inner() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location, date]);
+
+  // ✅ รวมจำนวนชิ้นฟรีบี้ + สร้างรายการรวม
+  const freebiesAggregate = rows.reduce(
+    (acc, r) => {
+      const { total, map } = parseFreebiesText(r.freebies);
+      acc.total += total;
+      for (const k of Object.keys(map)) acc.map[k] = (acc.map[k] || 0) + map[k];
+      return acc;
+    },
+    { total: 0, map: {} as Record<string, number> }
+  );
+  const freebiesList = Object.entries(freebiesAggregate.map)
+    .map(([name, qty]) => `${name} × ${qty}`)
+    .join(' ; ');
 
   return (
     <main className="min-h-screen p-4 sm:p-6 bg-[#fffff0]">
@@ -116,17 +155,29 @@ function Inner() {
         )}
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-4 text-sm">
+      {/* ✅ การ์ดสรุป รวม Freebies เพิ่มครบ */}
+      <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 text-sm mt-4">
         <div className="bg-white rounded-xl border p-3">Bills: <b>{totals.count}</b></div>
         <div className="bg-white rounded-xl border p-3">Total Qty: <b>{totals.totalQty}</b></div>
         <div className="bg-white rounded-xl border p-3">Total Amount: <b>{totals.totalAmount.toFixed(2)} THB</b></div>
         <div className="bg-white rounded-xl border p-3">Freebies Amount: <b>{(totals.freebiesAmount || 0).toFixed(2)} THB</b></div>
-        <div className="bg-white rounded-xl border p-3">
-          By Payment:&nbsp;
-          {Object.keys(totals.byPayment).length === 0 ? '—' :
-            Object.entries(totals.byPayment).map(([k,v]) => `${k}: ${v.toFixed(2)} THB`).join(' | ')
-          }
+        <div className="bg-white rounded-xl border p-3">Total Freebies: <b>{freebiesAggregate.total}</b> pcs</div>
+      </div>
+
+      <div className="bg-white rounded-xl border p-4 mt-4">
+        <div className="font-semibold mb-1">Freebies List</div>
+        <div className="text-sm text-gray-700">
+          {freebiesList || '—'}
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border p-3 mt-4 text-sm">
+        <span className="mr-2">By Payment:</span>
+        {Object.keys(totals.byPayment).length === 0 ? '—' :
+          Object.entries(totals.byPayment).map(([k, v]) => (
+            <span key={k} className="inline-block mr-3">{k}: <b>{v.toFixed(2)}</b> THB</span>
+          ))
+        }
       </div>
     </main>
   );

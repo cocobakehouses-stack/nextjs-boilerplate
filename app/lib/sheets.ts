@@ -3,6 +3,22 @@ import { google } from 'googleapis';
 
 export const TZ = 'Asia/Bangkok';
 
+// กำหนดแท็บที่อนุญาต (ตอนนี้ใช้ dynamic location ได้ แต่เรายังกันไว้ก่อน)
+export const ALLOWED_TABS = new Set<string>(['ORDERS', 'LOCATIONS', 'PRODUCTS']);
+
+// ประเภทของแถวใน History
+export interface HistoryRow {
+  date: string;
+  time: string;
+  billNo: string;
+  items: string;
+  freebies: string;
+  totalQty: number;
+  payment: string;
+  total: number;
+  freebiesAmount: number;
+}
+
 // auth helper
 export function getAuth() {
   return new google.auth.GoogleAuth({
@@ -65,7 +81,7 @@ export async function fetchHistory(sheets: any, spreadsheetId: string, title: st
   const header = rows[0] || [];
   const dataRows = rows.slice(1);
 
-  const history = dataRows.map(r => ({
+  const history: HistoryRow[] = dataRows.map((r) => ({
     date: r[0],
     time: r[1],
     billNo: r[2],
@@ -77,71 +93,11 @@ export async function fetchHistory(sheets: any, spreadsheetId: string, title: st
     freebiesAmount: Number(r[8] || 0),
   }));
 
-  const totals = summarizeTotals(history);
-  return { header, history, totals };
-}
-
-// โหลด history ตามช่วงวัน
-export async function fetchHistoryRange(
-  sheets: any,
-  spreadsheetId: string,
-  title: string,
-  startDate: string,
-  endDate: string
-) {
-  const { header, history } = await fetchHistory(sheets, spreadsheetId, title);
-
-  const filtered = history.filter(h => {
-    if (!h.date) return false;
-    return h.date >= startDate && h.date <= endDate;
-  });
-
-  const totals = summarizeTotals(filtered);
-  return { header, history: filtered, totals };
-}
-
-// รวมผลรวม
-export function summarizeTotals(history: any[]) {
-  return {
-    count: history.length,
-    totalQty: history.reduce((s, h) => s + (h.totalQty || 0), 0),
-    totalAmount: history.reduce((s, h) => s + (h.total || 0), 0),
-    freebiesAmount: history.reduce((s, h) => s + (h.freebiesAmount || 0), 0),
-    byPayment: history.reduce((acc, h) => {
-      const k = h.payment || 'UNKNOWN';
-      acc[k] = (acc[k] || 0) + (h.total || 0);
-      return acc;
-    }, {} as Record<string, number>),
+  const totals = {
+    qty: history.reduce((s, h) => s + h.totalQty, 0),
+    amount: history.reduce((s, h) => s + h.total, 0),
+    freebiesAmount: history.reduce((s, h) => s + h.freebiesAmount, 0),
   };
-}
 
-export type Period = 'daily' | 'weekly' | 'monthly';
-
-// สรุปแยกตาม period
-export function aggregateByPeriod(history: any[], period: Period) {
-  const buckets: Record<string, any> = {};
-
-  history.forEach(h => {
-    let key = h.date;
-    if (period === 'weekly') {
-      const d = new Date(`${h.date}T00:00:00+07:00`);
-      const day = (d.getDay() + 6) % 7; // Mon=0
-      const startD = new Date(d);
-      startD.setDate(d.getDate() - day);
-      const wkKey = toBangkokDateString(startD);
-      key = wkKey;
-    } else if (period === 'monthly') {
-      key = h.date?.slice(0, 7); // YYYY-MM
-    }
-    if (!key) return;
-
-    if (!buckets[key]) buckets[key] = [];
-    buckets[key].push(h);
-  });
-
-  // map เป็น summary
-  return Object.entries(buckets).map(([k, rows]) => ({
-    key: k,
-    totals: summarizeTotals(rows as any[]),
-  }));
+  return { header, history, totals };
 }

@@ -1,13 +1,13 @@
 // app/lib/sheets.ts
 import { google } from 'googleapis';
 
+/** ---------- Constants & Types ---------- */
 export const TZ = 'Asia/Bangkok';
 
-// กำหนดแท็บที่อนุญาต (ตอนนี้ใช้ dynamic location ได้ แต่เรายังกันไว้ก่อน)
-export const ALLOWED_TABS = new Set<string>(['ORDERS', 'LOCATIONS', 'PRODUCTS']);
+// ใช้เป็น safe set ขั้นต้น ถ้ามีระบบ Locations ภายหลังแนะนำให้ดึงจากแท็บ Locations แทน
+export const ALLOWED_TABS = new Set(['FLAGSHIP', 'SINDHORN', 'CHIN3', 'ORDERS']);
 
-// ประเภทของแถวใน History
-export interface HistoryRow {
+export type HistoryRow = {
   date: string;
   time: string;
   billNo: string;
@@ -17,87 +17,253 @@ export interface HistoryRow {
   payment: string;
   total: number;
   freebiesAmount: number;
-}
+};
 
-// auth helper
+export type Totals = {
+  count: number;
+  totalQty: number;
+  totalAmount: number;
+  freebiesAmount: number;
+  byPayment: Record<string, number>;
+};
+
+export type Period = 'daily' | 'weekly' | 'monthly';
+
+/** ---------- Auth ---------- */
 export function getAuth() {
-  return new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SHEETS_CLIENT_EMAIL,
-      private_key: process.env.GOOGLE_SHEETS_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
+  // รองรับได้หลายรูปแบบ ENV เพื่อความสะดวกในการ deploy
+  const rawJson = process.env.GOOGLE_CREDENTIALS_JSON;
+  if (rawJson) {
+    const creds = JSON.parse(rawJson);
+    return new google.auth.JWT(
+      creds.client_email,
+      undefined,
+      creds.private_key,
+      ['https://www.googleapis.com/auth/spreadsheets']
+    );
+  }
+
+  // แบบ service account มาตรฐาน
+  const email =
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
+    process.env.GOOGLE_SHEETS_CLIENT_EMAIL ||
+    '';
+
+  let key =
+    process.env.GOOGLE_SERVICE_ACCOUNT_KEY ||
+    process.env.GOOGLE_SHEETS_PRIVATE_KEY ||
+    '';
+
+  if (key.includes('\\r\\n')) key = key.replace(/\\r\\n/g, '\n');
+  if (key.includes('\\n')) key = key.replace(/\\n/g, '\n');
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1);
+  }
+  key = key.trim();
+
+  if (!email || !key) {
+    throw new Error(
+      'Service Account credentials are missing. Please set GOOGLE_CREDENTIALS_JSON or GOOGLE_SERVICE_ACCOUNT_EMAIL/KEY (or GOOGLE_SHEETS_CLIENT_EMAIL/PRIVATE_KEY).'
+    );
+  }
+
+  return new google.auth.JWT(email, undefined, key, [
+    'https://www.googleapis.com/auth/spreadsheets',
+  ]);
 }
 
-// แปลงวันที่เป็น string format YYYY-MM-DD (Bangkok)
+/** ---------- Utils ---------- */
 export function toBangkokDateString(date: Date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(date);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(date); // YYYY-MM-DD
 }
 
-// ตรวจสอบและสร้างแท็บถ้ายังไม่มี
-export async function ensureSheetExists(sheets: any, spreadsheetId: string, title: string) {
-  const meta = await sheets.spreadsheets.get({ spreadsheetId });
-  const existing = meta.data.sheets?.map((s: any) => s.properties?.title) || [];
-  if (existing.includes(title)) return;
+// ครอบชื่อชีตใน A1 notation ให้ปลอดภัย (มีเว้นวรรค/อักขระพิเศษ/มี quote)
+export function a1Sheet(title: string) {
+  const escaped = String(title).replace(/'/g, "''");
+  return `'${escaped}'`;
+}
+
+/** ---------- Sheet helpers ---------- */
+export async function ensureSheetExists(
+  sheets: any,
+  spreadsheetId: string,
+  title: string
+) {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties.title',
+  });
+  const exists = (meta.data.sheets ?? []).some(
+    (s: any) => s.properties?.title === title
+  );
+  if (exists) return;
 
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
-      requests: [
-        {
-          addSheet: {
-            properties: {
-              title,
-              gridProperties: { rowCount: 1000, columnCount: 20 },
-            },
-          },
-        },
-      ],
+      requests: [{ addSheet: { properties: { title } } }],
     },
   });
 
-  // ตั้งหัวคอลัมน์ A..I
+  // ตั้งหัวคอลัมน์ A..I ให้ตรงกับระบบ
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `'${title}'!A1:I1`,
+    range: `${a1Sheet(title)}!A1:I1`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
-      values: [[
-        'Date', 'Time', 'BillNo', 'Items', 'Freebies',
-        'TotalQty', 'Payment', 'Total', 'FreebiesAmount'
-      ]],
+      values: [
+        [
+          'Date',
+          'Time',
+          'BillNo',
+          'Items',
+          'Freebies',
+          'TotalQty',
+          'Payment',
+          'Total',
+          'FreebiesAmount',
+        ],
+      ],
     },
   });
 }
 
-// โหลด history ทั้งหมดจากชีต
-export async function fetchHistory(sheets: any, spreadsheetId: string, title: string) {
+/** ---------- Parsers ---------- */
+function parseNumberCell(x: any) {
+  const n = Number(String(x ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** ---------- History (single date) ---------- */
+export async function fetchHistory(
+  spreadsheetId: string,
+  tabTitle: string,
+  date: string
+): Promise<{ rows: HistoryRow[]; totals: Totals }> {
+  const auth = getAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  await ensureSheetExists(sheets, spreadsheetId, tabTitle);
+
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `'${title}'!A:I`,
+    range: `${a1Sheet(tabTitle)}!A:I`,
   });
-  const rows = res.data.values || [];
-  const header = rows[0] || [];
-  const dataRows = rows.slice(1);
 
-  const history: HistoryRow[] = dataRows.map((r) => ({
-    date: r[0],
-    time: r[1],
-    billNo: r[2],
-    items: r[3],
-    freebies: r[4],
-    totalQty: Number(r[5] || 0),
-    payment: r[6],
-    total: Number(r[7] || 0),
-    freebiesAmount: Number(r[8] || 0),
+  const rows = res.data.values || [];
+  const data = rows.slice(1); // skip header
+
+  const all: HistoryRow[] = data.map((r) => ({
+    date: (r[0] || '').toString().trim(),
+    time: (r[1] || '').toString().trim(),
+    billNo: (r[2] || '').toString().trim(),
+    items: (r[3] || '').toString().trim(),
+    freebies: (r[4] || '').toString().trim(),
+    totalQty: parseNumberCell(r[5]),
+    payment: (r[6] || '').toString().trim(),
+    total: parseNumberCell(r[7]),
+    freebiesAmount: parseNumberCell(r[8]),
   }));
 
-  const totals = {
-    qty: history.reduce((s, h) => s + h.totalQty, 0),
-    amount: history.reduce((s, h) => s + h.total, 0),
-    freebiesAmount: history.reduce((s, h) => s + h.freebiesAmount, 0),
-  };
+  const rowsForDate = all.filter((r) => r.date === date);
+  const totals = summarizeTotals(rowsForDate);
 
-  return { header, history, totals };
+  return { rows: rowsForDate, totals };
+}
+
+/** ---------- History (date range) ---------- */
+export async function fetchHistoryRange(
+  spreadsheetId: string,
+  tabTitle: string,
+  startDate: string, // inclusive
+  endDate: string // inclusive
+): Promise<HistoryRow[]> {
+  const auth = getAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  await ensureSheetExists(sheets, spreadsheetId, tabTitle);
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${a1Sheet(tabTitle)}!A:I`,
+  });
+
+  const rows = res.data.values || [];
+  const data = rows.slice(1);
+
+  const all: HistoryRow[] = data.map((r) => ({
+    date: (r[0] || '').toString().trim(),
+    time: (r[1] || '').toString().trim(),
+    billNo: (r[2] || '').toString().trim(),
+    items: (r[3] || '').toString().trim(),
+    freebies: (r[4] || '').toString().trim(),
+    totalQty: parseNumberCell(r[5]),
+    payment: (r[6] || '').toString().trim(),
+    total: parseNumberCell(r[7]),
+    freebiesAmount: parseNumberCell(r[8]),
+  }));
+
+  // filter by date range inclusive
+  const start = startDate;
+  const end = endDate;
+  return all.filter((r) => r.date >= start && r.date <= end);
+}
+
+/** ---------- Totals helpers ---------- */
+export function summarizeTotals(rows: HistoryRow[]): Totals {
+  const count = rows.length;
+  const totalQty = rows.reduce((s, r) => s + (r.totalQty || 0), 0);
+  const totalAmount = rows.reduce((s, r) => s + (r.total || 0), 0);
+  const freebiesAmount = rows.reduce((s, r) => s + (r.freebiesAmount || 0), 0);
+  const byPayment = rows.reduce<Record<string, number>>((acc, r) => {
+    const k = r.payment || '-';
+    acc[k] = (acc[k] || 0) + (r.total || 0);
+    return acc;
+  }, {});
+  return { count, totalQty, totalAmount, freebiesAmount, byPayment };
+}
+
+/** ---------- Aggregation by period ---------- */
+function weekKeyYYYYMMDD_Mon(dateStr: string): string {
+  // คืนวันจันทร์ของสัปดาห์ในกรุงเทพฯเป็น key (YYYY-MM-DD)
+  const d = new Date(`${dateStr}T00:00:00+07:00`);
+  const jsDay = d.getDay(); // Sun=0..Sat=6
+  // ทำให้ Mon=0..Sun=6
+  const monBased = (jsDay + 6) % 7;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - monBased);
+  return toBangkokDateString(monday);
+}
+
+function monthKeyYYYYMM(dateStr: string): string {
+  // ตัดเป็น YYYY-MM (เดือนของวันที่นั้น)
+  return dateStr.slice(0, 7);
+}
+
+export function aggregateByPeriod(
+  rows: HistoryRow[],
+  period: Period
+): Array<{ key: string; totals: Totals }> {
+  const buckets = new Map<string, HistoryRow[]>();
+
+  for (const r of rows) {
+    let key = r.date;
+    if (period === 'weekly') key = weekKeyYYYYMMDD_Mon(r.date);
+    if (period === 'monthly') key = monthKeyYYYYMM(r.date);
+
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(r);
+  }
+
+  const out: Array<{ key: string; totals: Totals }> = [];
+  for (const [key, rs] of buckets) {
+    out.push({ key, totals: summarizeTotals(rs) });
+  }
+
+  // sort key asc
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return out;
 }

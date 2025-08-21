@@ -1,7 +1,8 @@
 // app/api/history/pdf/route.ts
 import PDFDocument from 'pdfkit';
 import path from 'path';
-import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '../../../lib/sheets';
+import { google } from 'googleapis';
+import { getAuth, fetchHistory, toBangkokDateString } from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,11 +24,15 @@ export async function GET(req: Request) {
     const location = (searchParams.get('location') || 'ORDERS').toUpperCase();
     const date = searchParams.get('date') || toBangkokDateString();
 
-    if (!ALLOWED_TABS.has(location)) {
-      return new Response(JSON.stringify({ error: 'Invalid location' }), { status: 400 });
-    }
+    // auth + sheets client
+    const auth = getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
 
-    const { rows, totals } = await fetchHistory(spreadsheetId, location, date);
+    // fetch data
+    const { history, totals } = await fetchHistory(sheets, spreadsheetId, location);
+
+    // filter เฉพาะวันที่เลือก
+    const rows = history.filter(r => r.date === date);
 
     // ใช้ฟอนต์ UID_SPACE.ttf (ต้องวางไว้ที่ app/fonts/UID_SPACE.ttf)
     const doc = new (PDFDocument as any)({ size: 'A4', margin: 40 });

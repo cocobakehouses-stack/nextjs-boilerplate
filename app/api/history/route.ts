@@ -1,7 +1,10 @@
 // app/api/history/route.ts
 import { NextResponse } from 'next/server';
-import { google } from 'googleapis';
-import { getAuth, fetchHistory, toBangkokDateString } from '../../lib/sheets';
+import {
+  ALLOWED_TABS,
+  fetchHistory,
+  toBangkokDateString,
+} from '../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,17 +16,17 @@ export async function GET(req: Request) {
     const location = (searchParams.get('location') || 'ORDERS').toUpperCase();
     const date = searchParams.get('date') || toBangkokDateString();
 
-    // auth + sheets client
-    const auth = getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
+    if (!ALLOWED_TABS.has(location)) {
+      return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
+    }
 
-    // fetch data
-    const { history, totals } = await fetchHistory(spreadsheetId, tabTitle, date);
+    // ✅ ใช้ผลลัพธ์รูปแบบใหม่: { rows, totals }
+    const { rows, totals } = await fetchHistory(spreadsheetId, location, date);
 
-    // filter เฉพาะวันที่เลือก
-    const rows = history.filter(r => r.date === date);
-
-    return NextResponse.json({ rows, totals }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json(
+      { rows, totals },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (e: any) {
     console.error('GET /api/history error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });

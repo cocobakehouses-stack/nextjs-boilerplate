@@ -66,8 +66,8 @@ export async function GET(req: Request) {
     // ให้แน่ใจว่ามีแท็บปลายทาง (สร้างอัตโนมัติถ้าไม่มี)
     await ensureSheetExists(sheets, spreadsheetId, location);
 
-    // ⬇️ ดึงข้อมูลภายในช่วง — ตอนนี้ฟังก์ชันคืน "อาร์เรย์ของแถว" โดยตรง
-    const rows = await fetchHistoryRange(sheets, spreadsheetId, location, startDate, endDate);
+    // ⬇️ เรียกด้วย 4 อาร์กิวเมนต์: (sheets, spreadsheetId, tabTitle, { start, end })
+    const rows = await fetchHistoryRange(sheets, spreadsheetId, location, { start: startDate, end: endDate });
 
     // รายการรวมทั้งช่วง (grand total)
     const grand = summarizeTotals(rows);

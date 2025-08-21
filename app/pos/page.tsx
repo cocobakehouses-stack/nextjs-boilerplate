@@ -33,6 +33,9 @@ export default function POSPage() {
     const saved = (localStorage.getItem('pos_location') as LocationId | null) || null;
     if (saved) setLocation(saved);
   }, []);
+  useEffect(() => {
+    if (location) localStorage.setItem('pos_location', location);
+  }, [location]);
 
   // Step flow
   const [step, setStep] = useState<Step>('cart');
@@ -138,7 +141,8 @@ export default function POSPage() {
   // ---------- Cart operations ----------
   const addToCart = (p: Product) => {
     setCart((prev) => {
-      const idx = prev.findIndex((i) => i.id === p.id);
+      // กันกรณี id ชน/ข้อมูลเพี้ยน รวมด้วยทั้ง id และ name
+      const idx = prev.findIndex((i) => i.id === p.id && i.name === p.name);
       if (idx >= 0) {
         const next = [...prev];
         next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
@@ -233,7 +237,7 @@ export default function POSPage() {
       </div>
 
       {/* Location Gate */}
-      <LocationPicker value={location} onChange={(loc) => setLocation(loc)} />
+      <LocationPicker value={location} onChange={(loc) => setLocation(loc as LocationId)} />
 
       {!location ? null : (
         <>

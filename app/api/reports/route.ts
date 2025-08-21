@@ -67,13 +67,13 @@ export async function GET(req: Request) {
     await ensureSheetExists(sheets, spreadsheetId, location);
 
     // ดึงข้อมูลภายในช่วง
-    const rows = await fetchHistoryRange(spreadsheetId, location, startDate, endDate);
+    const { history } = await fetchHistoryRange(sheets, spreadsheetId, location, startDate, endDate);
 
     // รายการรวมทั้งช่วง (grand total)
-    const grand = summarizeTotals(rows);
+    const grand = summarizeTotals(history);
 
     // สรุปแบ่งตาม period
-    const buckets = aggregateByPeriod(rows, period as Period);
+    const buckets = aggregateByPeriod(history, period as Period);
 
     return NextResponse.json({
       location,

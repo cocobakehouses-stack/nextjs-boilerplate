@@ -66,8 +66,8 @@ export async function GET(req: Request) {
     // ให้แน่ใจว่ามีแท็บปลายทาง (สร้างอัตโนมัติถ้าไม่มี)
     await ensureSheetExists(sheets, spreadsheetId, location);
 
-    // ⬇️ fetchHistoryRange: เวอร์ชันนี้รับ (spreadsheetId, tabTitle, { start, end })
-    const rows = await fetchHistoryRange(spreadsheetId, location, { start: startDate, end: endDate });
+    // ⬇️ ใช้ signature 4 อาร์กิวเมนต์: (spreadsheetId, tabTitle, startDate, endDate)
+    const rows = await fetchHistoryRange(spreadsheetId, location, startDate, endDate);
 
     // รายการรวมทั้งช่วง (grand total)
     const grand = summarizeTotals(rows);

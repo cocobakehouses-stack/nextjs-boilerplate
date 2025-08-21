@@ -109,19 +109,20 @@ export default function POSPage() {
   }, [allProducts]);
 
   // ---------- Cart operations ----------
-  const addToCart = (p: Product) => {
-    setCart((prev) => {
-      const idx = prev.findIndex((i) => i.id === p.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
-        return next;
-      }
-      return [...prev, { ...p, quantity: 1 }];
-    });
-    setAdded((prev) => ({ ...prev, [p.id]: true }));
-    setTimeout(() => setAdded((prev) => ({ ...prev, [p.id]: false })), 600);
-  };
+const addToCart = (p: Product) => {
+  setCart((prev) => {
+    // เดิมเช็คด้วย id อย่างเดียว → ถ้า id ซ้ำจะรวมผิด
+    const idx = prev.findIndex((i) => i.id === p.id && i.name === p.name);
+    if (idx >= 0) {
+      const next = [...prev];
+      next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
+      return next;
+    }
+    return [...prev, { ...p, quantity: 1 }];
+  });
+  setAdded((prev) => ({ ...prev, [p.id]: true }));
+  setTimeout(() => setAdded((prev) => ({ ...prev, [p.id]: false })), 600);
+};
 
   const changeQty = (id: number, q: number) => {
     setCart((prev) => {

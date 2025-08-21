@@ -81,7 +81,47 @@ export async function fetchHistory(spreadsheetId: string, tabTitle: string, date
     } as HistoryRow))
     .filter(row => row.date === date);
 
-  const totals = {
+  const totals = summarizeTotals(data);
+  return { rows: data, totals };
+}
+
+/** ============ เพิ่มส่วนใหม่: ดึงช่วงวันที่ + รวมสรุป ============ **/
+
+export async function fetchHistoryRange(
+  spreadsheetId: string,
+  tabTitle: string,
+  startDate: string, // YYYY-MM-DD inclusive
+  endDate: string,   // YYYY-MM-DD inclusive
+) {
+  const auth = getAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  await ensureSheetExists(sheets, spreadsheetId, tabTitle);
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId, range: `${tabTitle}!A:I`,
+  });
+
+  const rows: string[][] = res.data.values || [];
+  const data = rows.slice(1)
+    .map(r => ({
+      date: r[0] || '',
+      time: r[1] || '',
+      billNo: r[2] || '',
+      items: r[3] || '',
+      freebies: r[4] || '',
+      totalQty: Number(r[5] || 0),
+      payment: r[6] || '',
+      total: Number((r[7] || '0').toString().replace(/,/g, '')),
+      freebiesAmount: Number((r[8] || '0').toString().replace(/,/g, '')),
+    } as HistoryRow))
+    .filter(row => row.date >= startDate && row.date <= endDate);
+
+  return data;
+}
+
+export function summarizeTotals(data: HistoryRow[]) {
+  return {
     count: data.length,
     totalQty: data.reduce((s, r) => s + (r.totalQty || 0), 0),
     totalAmount: data.reduce((s, r) => s + (r.total || 0), 0),
@@ -91,6 +131,39 @@ export async function fetchHistory(spreadsheetId: string, tabTitle: string, date
       return acc;
     }, {}),
   };
+}
 
-  return { rows: data, totals };
+function startOfWeek(dateStr: string) {
+  // วันจันทร์เป็นวันเริ่มสัปดาห์
+  const d = new Date(`${dateStr}T00:00:00+07:00`);
+  const day = (d.getDay() + 6) % 7; // Mon=0 ... Sun=6
+  d.setDate(d.getDate() - day);
+  return toBangkokDateString(d);
+}
+
+function monthKey(dateStr: string) {
+  return dateStr.slice(0, 7); // YYYY-MM
+}
+
+export type Period = 'daily' | 'weekly' | 'monthly';
+
+export function aggregateByPeriod(rows: HistoryRow[], period: Period) {
+  const groups = new Map<string, HistoryRow[]>();
+
+  for (const r of rows) {
+    let key = r.date;
+    if (period === 'weekly') key = startOfWeek(r.date);
+    if (period === 'monthly') key = monthKey(r.date);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+
+  const result = [...groups.entries()]
+    .map(([key, items]) => ({
+      periodKey: key,
+      ...summarizeTotals(items),
+    }))
+    .sort((a, b) => (a.periodKey < b.periodKey ? -1 : 1));
+
+  return result;
 }

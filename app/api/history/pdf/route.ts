@@ -1,8 +1,12 @@
 // app/api/history/pdf/route.ts
 import PDFDocument from 'pdfkit';
 import path from 'path';
-import { google } from 'googleapis';
-import { getAuth, fetchHistory, toBangkokDateString } from '../../../lib/sheets';
+import {
+  ALLOWED_TABS,
+  fetchHistory,
+  toBangkokDateString,
+  type HistoryRow,
+} from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,15 +28,15 @@ export async function GET(req: Request) {
     const location = (searchParams.get('location') || 'ORDERS').toUpperCase();
     const date = searchParams.get('date') || toBangkokDateString();
 
-    // auth + sheets client
-    const auth = getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
+    if (!ALLOWED_TABS.has(location)) {
+      return new Response(JSON.stringify({ error: 'Invalid location' }), { status: 400 });
+    }
 
-    // fetch data
-    const { history, totals } = await fetchHistory(spreadsheetId, tabTitle, date);
+    const tabTitle = location;
 
-    // filter เฉพาะวันที่เลือก
-    const rows = history.filter(r => r.date === date);
+    // ✅ ดึงข้อมูลตาม signature ปัจจุบัน: (spreadsheetId, tabTitle, date)
+    const { rows, totals } = await fetchHistory(spreadsheetId, tabTitle, date);
+    const data: HistoryRow[] = rows as HistoryRow[];
 
     // ใช้ฟอนต์ UID_SPACE.ttf (ต้องวางไว้ที่ app/fonts/UID_SPACE.ttf)
     const doc = new (PDFDocument as any)({ size: 'A4', margin: 40 });
@@ -45,7 +49,7 @@ export async function GET(req: Request) {
     // Header
     doc.fontSize(16).text('Coco Bakehouse – End of Day', { align: 'left' });
     doc.moveDown(0.3);
-    doc.fontSize(12).text(`Location: ${location}    Date: ${date}`);
+    doc.fontSize(12).text(`Location: ${tabTitle}    Date: ${date}`);
     doc.moveDown(0.5);
 
     // Table header
@@ -62,7 +66,7 @@ export async function GET(req: Request) {
 
     // Rows
     doc.moveDown(0.3);
-    rows.forEach((r) => {
+    data.forEach((r) => {
       const y = doc.y;
       doc.text(r.time || '', colX[0], y, { width: colX[1] - colX[0] - 6 });
       doc.text(r.billNo || '', colX[1], y, { width: colX[2] - colX[1] - 6 });
@@ -78,17 +82,19 @@ export async function GET(req: Request) {
     doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke('#000');
     doc.moveDown(0.5);
 
+    // ✅ ใช้ฟิลด์ตรงกับ lib/sheets.ts เวอร์ชันล่าสุด
     doc.fontSize(12).text(`Bills: ${totals.count}   Total Qty: ${totals.totalQty}`);
     doc.text(`Total Amount: ${totals.totalAmount.toFixed(2)} THB`);
-    const payments = Object.entries(totals.byPayment)
-      .map(([k, v]) => `${k}: ${v.toFixed(2)} THB`)
+    doc.text(`Freebies Amount: ${(totals.freebiesAmount || 0).toFixed(2)} THB`);
+    const payments = Object.entries(totals.byPayment || {})
+      .map(([k, v]) => `${k}: ${(v as number).toFixed(2)} THB`)
       .join(' | ');
     if (payments) doc.text(`By Payment → ${payments}`);
 
     doc.end();
     const buf = await bufPromise;
 
-    const fileName = `EOD_${location}_${date}.pdf`;
+    const fileName = `EOD_${tabTitle}_${date}.pdf`;
     return new Response(new Uint8Array(buf), {
       headers: {
         'Content-Type': 'application/pdf',

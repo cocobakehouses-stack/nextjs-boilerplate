@@ -29,7 +29,7 @@ export async function GET(req: Request) {
     const sheets = google.sheets({ version: 'v4', auth });
 
     // fetch data
-    const { history, totals } = await fetchHistory(sheets, spreadsheetId, location);
+    const { history, totals } = await fetchHistory(spreadsheetId, tabTitle, date);
 
     // filter เฉพาะวันที่เลือก
     const rows = history.filter(r => r.date === date);

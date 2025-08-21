@@ -95,7 +95,7 @@ export default function POSPage() {
     const soft: Product[] = [];
     for (const p of allProducts) {
       if (p.price > 135) premium.push(p);
-      else if (p.price > 125 && p.price <= 135) levain.push(p);
+      else if (p.price >= 125 && p.price <= 135) levain.push(p);
       else if (p.price <= 109) soft.push(p);
       // ถ้าต้องการรวมช่วง 110–125 ไป Soft: else soft.push(p);
     }

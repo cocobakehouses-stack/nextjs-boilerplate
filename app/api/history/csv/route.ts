@@ -1,28 +1,14 @@
 // app/api/history/csv/route.ts
 import { NextResponse } from 'next/server';
-import { google } from 'googleapis';
 import {
   ALLOWED_TABS,
-  toBangkokDateString,
-  getAuth,
   fetchHistory,
+  toBangkokDateString,
+  type HistoryRow,
 } from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-// ใช้ type ภายในไฟล์นี้เพื่อกัน implicit any เวลาทำ map/filter
-type HistoryRow = {
-  date: string;
-  time: string;
-  billNo: string;
-  items: string;
-  freebies: string;
-  totalQty: number;
-  payment: string;
-  total: number;
-  freebiesAmount: number;
-};
 
 export async function GET(req: Request) {
   try {
@@ -35,17 +21,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
     }
 
-    // เตรียม Google Sheets client
-    const auth = getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
+    // ✅ เรียกตาม signature ปัจจุบัน: (spreadsheetId, tabTitle, date)
+    const { rows } = await fetchHistory(spreadsheetId, location, date);
 
-    // ดึงข้อมูลทั้งหมดของ location (ทุกวัน) แล้วค่อย filter เอาเฉพาะวันที่เลือก
-    const { rows } = await fetchHistory(sheets, spreadsheetId, location);
-    const filtered: HistoryRow[] = (rows as HistoryRow[]).filter(
-      (r: HistoryRow) => r.date === date
-    );
+    // เผื่อ type ในโปรเจกต์ยังไม่ได้ export ให้ cast เป็น HistoryRow[]
+    const data: HistoryRow[] = rows as HistoryRow[];
 
-    // ทำ CSV (เพิ่มคอลัมน์ FreebiesAmount ด้วย)
+    // Header รวม FreebiesAmount ตามที่ต้องการ
     const header = [
       'Date',
       'Time',
@@ -57,15 +39,16 @@ export async function GET(req: Request) {
       'Total',
       'FreebiesAmount',
     ];
+
     const csvLines = [
       header.join(','),
-      ...filtered.map((r: HistoryRow) =>
+      ...data.map((r) =>
         [
           r.date,
           r.time,
           r.billNo,
-          JSON.stringify(r.items), // เผื่อมี comma/semicolon ในข้อความ
-          JSON.stringify(r.freebies),
+          JSON.stringify(r.items),     // กัน comma แตกคอลัมน์
+          JSON.stringify(r.freebies),  // กัน comma แตกคอลัมน์
           String(r.totalQty),
           r.payment,
           (r.total ?? 0).toFixed(2),

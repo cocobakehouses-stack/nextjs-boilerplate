@@ -1,6 +1,7 @@
 // app/api/history/csv/route.ts
 import { NextResponse } from 'next/server';
-import { ALLOWED_TABS, fetchHistory, toBangkokDateString } from '../../../lib/sheets';
+import { google } from 'googleapis';
+import { getAuth, fetchHistory, toBangkokDateString } from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,22 +13,29 @@ export async function GET(req: Request) {
     const location = (searchParams.get('location') || 'ORDERS').toUpperCase();
     const date = searchParams.get('date') || toBangkokDateString();
 
-    if (!ALLOWED_TABS.has(location)) {
-      return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
-    }
+    // auth + sheets client
+    const auth = getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
 
-    const { rows } = await fetchHistory(spreadsheetId, location, date);
+    // fetch data
+    const { history } = await fetchHistory(sheets, spreadsheetId, location);
 
-    const header = ['Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total'];
+    // filter เฉพาะวันที่เลือก
+    const rows = history.filter(r => r.date === date);
+
+    const header = ['Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount'];
     const csvLines = [
       header.join(','),
       ...rows.map(r => [
-        r.date, r.time, r.billNo,
+        r.date,
+        r.time,
+        r.billNo,
         JSON.stringify(r.items),
         JSON.stringify(r.freebies),
         String(r.totalQty),
         r.payment,
         r.total.toFixed(2),
+        r.freebiesAmount.toFixed(2),
       ].join(','))
     ];
     const csv = csvLines.join('\n');

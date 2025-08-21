@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
-import { products as FALLBACK_PRODUCTS } from '../data/products'; // ใช้เป็น fallback เท่านั้น
+import { products as FALLBACK_PRODUCTS } from '../data/products'; // fallback เท่านั้น
 
 // ---------- Types ----------
 type Product = { id: number; name: string; price: number };
@@ -14,7 +14,6 @@ type Step = 'cart' | 'summary' | 'confirm' | 'success';
 
 // ---------- Helpers ----------
 const TZ = 'Asia/Bangkok';
-
 function toDateString(d: Date) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
 }
@@ -23,7 +22,6 @@ function toTimeString(d: Date) {
     timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).format(d).replace(/\./g, ':');
 }
-
 function classNames(...xs: (string | false | null | undefined)[]) {
   return xs.filter(Boolean).join(' ');
 }
@@ -48,32 +46,28 @@ export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
 
-  const loadProducts = async () => {
+  async function reloadProducts() {
     try {
       setLoadingProducts(true);
       const res = await fetch('/api/products', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const list: Product[] = data?.products || [];
-      if (list.length > 0) {
-        setProducts(list);
-      } else {
-        setProducts(FALLBACK_PRODUCTS);
-      }
+      if (list.length > 0) setProducts(list);
+      else setProducts(FALLBACK_PRODUCTS);
     } catch {
       setProducts(FALLBACK_PRODUCTS);
     } finally {
       setLoadingProducts(false);
     }
-  };
+  }
 
   useEffect(() => {
-    loadProducts();
+    reloadProducts();
   }, []);
 
   // Freebies
   const [freebies, setFreebies] = useState<Line[]>([]);
   const [freebiePick, setFreebiePick] = useState<number>(FALLBACK_PRODUCTS[0]?.id ?? 0);
-  // ตั้งค่าเริ่มต้นของ freebiePick ใหม่เมื่อ products โหลดเสร็จ
   useEffect(() => {
     if (products.length > 0) setFreebiePick(products[0].id);
   }, [products]);
@@ -90,8 +84,8 @@ export default function POSPage() {
 
   // ---------- Products: auto-sort + grouping ----------
   const allProducts = useMemo<Product[]>(() => {
-    const merged = [...products]; // ใช้รายการจาก API (หรือ fallback ที่เซ็ตไว้)
-    merged.sort((a, b) => b.price - a.price); // สูง → ต่ำ
+    const merged = [...products];
+    merged.sort((a, b) => b.price - a.price);
     return merged;
   }, [products]);
 
@@ -103,34 +97,64 @@ export default function POSPage() {
       if (p.price > 135) premium.push(p);
       else if (p.price > 125 && p.price <= 135) levain.push(p);
       else if (p.price <= 109) soft.push(p);
-      // หมวด 110–125 ไม่ถูกแสดง; ถ้าต้องการรวมเข้าหมวด Soft ให้ใช้ else soft.push(p);
+      // ถ้าต้องการรวมช่วง 110–125 ไป Soft: else soft.push(p);
     }
     return { premium, levain, soft };
   }, [allProducts]);
 
-  // ---------- Cart operations ----------
-const addToCart = (p: Product) => {
-  setCart((prev) => {
-    // เดิมเช็คด้วย id อย่างเดียว → ถ้า id ซ้ำจะรวมผิด
-    const idx = prev.findIndex((i) => i.id === p.id && i.name === p.name);
-    if (idx >= 0) {
-      const next = [...prev];
-      next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
-      return next;
-    }
-    return [...prev, { ...p, quantity: 1 }];
-  });
-  setAdded((prev) => ({ ...prev, [p.id]: true }));
-  setTimeout(() => setAdded((prev) => ({ ...prev, [p.id]: false })), 600);
-};
+  // ---------- Add new product (inline) ----------
+  const [newName, setNewName] = useState('');
+  const [newPrice, setNewPrice] = useState<number | ''>('');
+  const [busyAddProduct, setBusyAddProduct] = useState(false);
 
+  async function addNewProduct() {
+    const name = newName.trim();
+    const price = Number(newPrice);
+    if (!name || !Number.isFinite(price) || price <= 0) {
+      alert('กรอกชื่อและราคาที่ถูกต้อง');
+      return;
+    }
+    try {
+      setBusyAddProduct(true);
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, price }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Add product failed');
+      // reload list
+      await reloadProducts();
+      setNewName('');
+      setNewPrice('');
+      alert('เพิ่มเมนูสำเร็จ');
+    } catch (e: any) {
+      alert(e?.message || 'Add product failed');
+    } finally {
+      setBusyAddProduct(false);
+    }
+  }
+
+  // ---------- Cart operations ----------
+  const addToCart = (p: Product) => {
+    setCart((prev) => {
+      const idx = prev.findIndex((i) => i.id === p.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
+        return next;
+      }
+      return [...prev, { ...p, quantity: 1 }];
+    });
+    setAdded((prev) => ({ ...prev, [p.id]: true }));
+    setTimeout(() => setAdded((prev) => ({ ...prev, [p.id]: false })), 600);
+  };
   const changeQty = (id: number, q: number) => {
     setCart((prev) => {
       if (q <= 0) return prev.filter((i) => i.id !== id);
       return prev.map((i) => (i.id === id ? { ...i, quantity: q } : i));
     });
   };
-
   const removeFromCart = (id: number) => {
     setCart((prev) => prev.filter((i) => i.id !== id));
   };
@@ -160,36 +184,6 @@ const addToCart = (p: Product) => {
   };
   const removeFreebie = (name: string) => setFreebies((prev) => prev.filter((f) => f.name !== name));
 
-  // ---------- เพิ่มเมนูใหม่ (เขียนลงแท็บ Products) ----------
-  const [newName, setNewName] = useState('');
-  const [newPrice, setNewPrice] = useState('');
-
-  const addNewMenu = async () => {
-    const name = newName.trim();
-    const price = Number(String(newPrice).trim());
-    if (!name || !Number.isFinite(price) || price <= 0) {
-      alert('กรุณากรอกชื่อและราคาที่ถูกต้อง');
-      return;
-    }
-    try {
-      setLoadingProducts(true);
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, price }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Add failed');
-      setNewName('');
-      setNewPrice('');
-      await loadProducts(); // refresh รายการจากชีต
-    } catch (e:any) {
-      alert(e?.message || 'Add failed');
-    } finally {
-      setLoadingProducts(false);
-    }
-  };
-
   // ---------- Navigation ----------
   const goSummary = () => {
     if (!location) return alert('กรุณาเลือกสถานที่ก่อนใช้งาน');
@@ -199,12 +193,10 @@ const addToCart = (p: Product) => {
     setTimeStr(toTimeString(now));
     setStep('summary');
   };
-
   const goConfirm = () => {
     if (!payment) return alert('กรุณาเลือกวิธีชำระเงิน');
     setStep('confirm');
   };
-
   const resetForNewBill = () => {
     setCart([]); setAdded({}); setPayment(null); setFreebies([]); setLastSaved(null); setStep('cart');
   };
@@ -230,8 +222,7 @@ const addToCart = (p: Product) => {
           {location && (
             <a
               className="px-3 py-1 rounded-lg border hover:bg-white"
-              target="_blank"
-              rel="noreferrer"
+              target="_blank" rel="noreferrer"
               href={`/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(dateStr)}`}
               title="Show history (open in new tab)"
             >
@@ -268,42 +259,30 @@ const addToCart = (p: Product) => {
           {/* CART */}
           {step === 'cart' && (
             <>
-              {/* ✅ เพิ่มเมนูใหม่ */}
-              <div className="bg-white border rounded-xl p-4 mb-5">
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold">เพิ่มเมนูใหม่ (บันทึกลง Google Sheets)</div>
-                  <button
-                    onClick={loadProducts}
-                    className="px-3 py-1 rounded-lg border bg-white text-sm"
-                    disabled={loadingProducts}
-                  >
-                    รีเฟรชเมนู
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_auto] gap-3 mt-3">
+              {/* Add new product inline */}
+              <div className="rounded-xl border bg-white p-4 mb-4">
+                <div className="font-semibold mb-2">เพิ่มเมนูใหม่ (บันทึกลงแท็บ Products)</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <input
-                    className="rounded border px-3 py-2"
-                    placeholder="ชื่อสินค้า"
+                    className="rounded-lg border px-3 py-2"
+                    placeholder="ชื่อเมนู"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                   />
                   <input
-                    className="rounded border px-3 py-2"
-                    placeholder="ราคา เช่น 129"
+                    className="rounded-lg border px-3 py-2"
+                    placeholder="ราคา (เช่น 135)"
                     inputMode="decimal"
                     value={newPrice}
-                    onChange={(e) => setNewPrice(e.target.value)}
+                    onChange={(e) => setNewPrice(e.target.value === '' ? '' : Number(e.target.value))}
                   />
                   <button
-                    onClick={addNewMenu}
-                    className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40"
-                    disabled={loadingProducts}
+                    className="rounded-lg px-4 py-2 bg-[#ac0000] text-[#fffff0] disabled:opacity-40"
+                    onClick={addNewProduct}
+                    disabled={busyAddProduct || !newName.trim() || !Number.isFinite(Number(newPrice))}
                   >
-                    เพิ่มเมนู
+                    {busyAddProduct ? 'กำลังเพิ่ม…' : 'เพิ่มเมนู'}
                   </button>
-                </div>
-                <div className="text-xs text-gray-500 mt-2">
-                  * ระบบจะเพิ่มลงแท็บ <b>Products</b> ใน Google Sheets แล้วรีเฟรชรายการให้อัตโนมัติ
                 </div>
               </div>
 
@@ -493,7 +472,6 @@ const addToCart = (p: Product) => {
           {step === 'confirm' && (
             <div className="bg-white rounded-xl p-6 border max-w-xl">
               <h2 className="text-2xl font-bold mb-4">ยืนยันส่งข้อมูล</h2>
-
               <div className="space-y-2 text-sm">
                 <div><b>BillNo:</b> (ระบบจะออกให้)</div>
                 <div><b>Time:</b> {timeStr}</div>
@@ -509,7 +487,6 @@ const addToCart = (p: Product) => {
                 <button
                   onClick={async () => {
                     if (!location || !payment) return;
-                    // ส่งไป /api/orders
                     const itemsPayload: Line[] = cart.map((i) => ({ name: i.name, qty: i.quantity, price: i.price }));
                     const body = {
                       location,

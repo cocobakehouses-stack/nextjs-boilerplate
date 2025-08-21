@@ -23,7 +23,7 @@ function defaultRange(period: Period) {
   }
 
   if (period === 'weekly') {
-    // จันทร์ต้นสัปดาห์ -> อาทิตย์สุดสัปดาห์
+    // จันทร์ต้นสัปดาห์ -> อาทิตย์สุดสัปดาห์ (Asia/Bangkok)
     const d = new Date(`${today}T00:00:00+07:00`);
     const day = (d.getDay() + 6) % 7; // Mon=0..Sun=6
     const startD = new Date(d);
@@ -35,7 +35,7 @@ function defaultRange(period: Period) {
 
   // monthly
   const [y, m] = today.split('-').map(Number);
-  const startD = new Date(Date.UTC(y, (m - 1), 1));
+  const startD = new Date(Date.UTC(y, m - 1, 1));
   const endD = new Date(Date.UTC(y, m, 0)); // last day of month
   return {
     start: toBangkokDateString(startD),
@@ -55,7 +55,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Invalid period' }, { status: 400 });
     }
 
-    const { start: sDef, end: eDef } = defaultRange(period as Period);
+    const { start: sDef, end: eDef } = defaultRange(period);
     const startDate = start || sDef;
     const endDate = end || eDef;
 
@@ -66,22 +66,25 @@ export async function GET(req: Request) {
     // ให้แน่ใจว่ามีแท็บปลายทาง (สร้างอัตโนมัติถ้าไม่มี)
     await ensureSheetExists(sheets, spreadsheetId, location);
 
-    // ดึงข้อมูลภายในช่วง
-    const { history } = await fetchHistoryRange(sheets, spreadsheetId, location, startDate, endDate);
+    // ⬇️ ดึงข้อมูลภายในช่วง — ตอนนี้ฟังก์ชันคืน "อาร์เรย์ของแถว" โดยตรง
+    const rows = await fetchHistoryRange(sheets, spreadsheetId, location, startDate, endDate);
 
     // รายการรวมทั้งช่วง (grand total)
-    const grand = summarizeTotals(history);
+    const grand = summarizeTotals(rows);
 
     // สรุปแบ่งตาม period
-    const buckets = aggregateByPeriod(history, period as Period);
+    const buckets = aggregateByPeriod(rows, period);
 
-    return NextResponse.json({
-      location,
-      period,
-      range: { start: startDate, end: endDate },
-      grand,
-      buckets,
-    }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json(
+      {
+        location,
+        period,
+        range: { start: startDate, end: endDate },
+        grand,
+        buckets,
+      },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (e: any) {
     console.error('GET /api/reports error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });

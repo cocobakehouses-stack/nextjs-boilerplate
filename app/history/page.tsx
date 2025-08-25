@@ -1,182 +1,245 @@
 // app/history/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 
-type Row = {
-  date: string; time: string; billNo: string; items: string;
-  freebies: string; totalQty: number; payment: string; total: number;
+type LocationRow = { id: string; label: string };
+type HistoryRow = {
+  date: string;
+  time: string;
+  billNo: string;
+  items: string;
+  freebies: string;
+  totalQty: number;
+  payment: string;
+  total: number;
+  freebiesAmount?: number;
+  location?: string; // เพิ่มไว้รองรับโหมด ALL
 };
 
-function parseFreebiesLines(freebies: string): Record<string, number> {
-  // ฟรีบี้ส์ถูกเก็บเป็น "Name xQty; Name2 xQty2" => รวม qty ตามชื่อ
-  const map: Record<string, number> = {};
-  const parts = (freebies || '').split(';').map(s => s.trim()).filter(Boolean);
-  for (const p of parts) {
-    // รูปแบบ: "Name x3" หรือ "Name x 3"
-    const m = p.match(/^(.*?)(?:\s+|)x\s*(\d+)$/i);
-    if (m) {
-      const name = m[1].trim();
-      const qty = Number(m[2]);
-      if (name && Number.isFinite(qty)) {
-        map[name] = (map[name] || 0) + qty;
-      }
-    }
-  }
-  return map;
+const TZ = 'Asia/Bangkok';
+function toBangkokDateString(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
 }
 
-function Inner() {
-  const sp = useSearchParams();
-  const [location, setLocation] = useState(sp.get('location') || 'FLAGSHIP');
-  const [date, setDate] = useState(sp.get('date') || new Date().toISOString().slice(0,10));
-  const [rows, setRows] = useState<Row[]>([]);
-  const [totals, setTotals] = useState<{count:number; totalQty:number; totalAmount:number; freebiesAmount: number; byPayment: Record<string, number>}>({count: 0, totalQty: 0, totalAmount: 0, freebiesAmount: 0, byPayment:{}});
+const ALL_ID = 'ALL';
+
+export default function HistoryPage() {
+  const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [loadingLocs, setLoadingLocs] = useState(true);
+  const [location, setLocation] = useState<string>('');
+  const [date, setDate] = useState<string>(toBangkokDateString());
+
+  const [rows, setRows] = useState<HistoryRow[]>([]);
+  const [totals, setTotals] = useState<{
+    count: number;
+    totalQty: number;
+    totalAmount: number;
+    freebiesAmount: number;
+    byPayment: Record<string, number>;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    const q = new URLSearchParams({ location, date }).toString();
-    const res = await fetch(`/api/history?${q}`, { cache: 'no-store' });
-    const data = await res.json();
-    if (res.ok) {
-      setRows(data.rows || []);
-      setTotals({
-        count: data.totals?.count ?? 0,
-        totalQty: data.totals?.totalQty ?? 0,
-        totalAmount: data.totals?.totalAmount ?? 0,
-        freebiesAmount: data.totals?.freebiesAmount ?? 0,
-        byPayment: data.totals?.byPayment ?? {},
-      });
-    } else {
-      alert(data.error || 'Load failed');
+  // โหลดรายการสถานที่จาก /api/locations + แทรก All
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoadingLocs(true);
+        const res = await fetch('/api/locations', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        const list: LocationRow[] = data?.locations || [];
+        const final = [{ id: ALL_ID, label: 'All Locations' }, ...list];
+        setLocations(final);
+
+        const saved = (localStorage.getItem('pos_location') || '').toUpperCase();
+        if (saved && final.some(l => l.id === saved)) setLocation(saved);
+        else setLocation(ALL_ID);
+      } finally {
+        setLoadingLocs(false);
+      }
+    };
+    load();
+  }, []);
+
+  // รวมยอดข้ามหลายสาขา
+  function reduceTotals(all: HistoryRow[]) {
+    const count = all.length;
+    const totalQty = all.reduce((s, r) => s + (r.totalQty || 0), 0);
+    const totalAmount = all.reduce((s, r) => s + (r.total || 0), 0);
+    const freebiesAmount = all.reduce((s, r) => s + (r.freebiesAmount || 0), 0);
+    const byPayment: Record<string, number> = {};
+    for (const r of all) {
+      const k = r.payment || '-';
+      byPayment[k] = (byPayment[k] || 0) + (r.total || 0);
     }
-    setLoading(false);
+    return { count, totalQty, totalAmount, freebiesAmount, byPayment };
+  }
+
+  // โหลดข้อมูล (สาขาเดียว / All)
+  const fetchHistory = async () => {
+    try {
+      setLoading(true);
+      setRows([]);
+      setTotals(null);
+
+      const url = new URL('/api/history', window.location.origin);
+      url.searchParams.set('location', location);
+      url.searchParams.set('date', date);
+
+      const res = await fetch(url.toString(), { cache: 'no-store' });
+      const data = await res.json();
+
+      // เซิร์ฟเวอร์จะรวมให้เรียบร้อยแล้วทั้ง 2 โหมด
+      const list: HistoryRow[] = (data?.rows || []);
+      // เผื่อบางแถวไม่มี location เวลาเป็นสาขาเดียว
+      const withLoc = list.map(r => (r.location ? r : { ...r, location: location === ALL_ID ? '' : location }));
+
+      setRows(withLoc);
+      setTotals(data?.totals || reduceTotals(withLoc));
+    } catch (e) {
+      console.error('load history error', e);
+      setRows([]);
+      setTotals(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => {
-    const q = new URLSearchParams({ location, date }).toString();
-    const url = `/history?${q}`;
-    window.history.replaceState(null, '', url);
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // ลิงก์ดาวน์โหลด
+  const csvHref = useMemo(() => {
+    if (!location || !date) return '#';
+    const u = new URL('/api/history/csv', window.location.origin);
+    u.searchParams.set('location', location);
+    u.searchParams.set('date', date);
+    return u.toString();
   }, [location, date]);
 
-  // ===== สรุปฟรีบี้ส์ (นับจำนวนชิ้น + ลิสต์ชื่อรวม) =====
-  const freebiesAgg = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const r of rows) {
-      const m = parseFreebiesLines(r.freebies || '');
-      for (const [name, qty] of Object.entries(m)) {
-        map[name] = (map[name] || 0) + qty;
-      }
-    }
-    const totalFreebiesQty = Object.values(map).reduce((s, n) => s + n, 0);
-    const list = Object.entries(map)
-      .sort((a,b) => b[1] - a[1])
-      .map(([k,v]) => `${k} x${v}`)
-      .join(' | ');
-    return { totalFreebiesQty, list };
-  }, [rows]);
+  const pdfHref = useMemo(() => {
+    if (!location || !date) return '#';
+    const u = new URL('/api/history/pdf', window.location.origin);
+    u.searchParams.set('location', location);
+    u.searchParams.set('date', date);
+    return u.toString();
+  }, [location, date]);
 
   return (
-    <main className="min-h-screen p-4 sm:p-6 bg-[#fffff0]">
+    <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-[#fffff0]">
       <h1 className="text-2xl font-bold mb-4">End of Day – History</h1>
 
-      <div className="flex flex-wrap gap-3 items-end mb-4">
-        <div>
-          <label className="block text-sm text-gray-600">Location</label>
-          <select value={location} onChange={e => setLocation(e.target.value)} className="rounded border px-3 py-2 bg-white">
-            <option value="FLAGSHIP">หน้าร้าน</option>
-            <option value="SINDHORN">สินธร</option>
-            <option value="CHIN3">ชินวัตร 3</option>
-            <option value="ORDERS">ORDERS (รวม)</option>
+      <div className="rounded-xl border bg-white p-4 mb-4 flex flex-col sm:flex-row gap-3 sm:items-end">
+        <div className="flex-1">
+          <label className="block text-sm text-gray-600 mb-1">สถานที่</label>
+          <select
+            className="rounded border px-3 py-2 bg-white w-full"
+            value={location}
+            onChange={(e) => {
+              const v = e.target.value.toUpperCase();
+              setLocation(v);
+              if (v !== ALL_ID) localStorage.setItem('pos_location', v);
+            }}
+            disabled={loadingLocs}
+          >
+            {loadingLocs ? (
+              <option>Loading locations…</option>
+            ) : locations.length === 0 ? (
+              <option>— ไม่มีสถานที่ —</option>
+            ) : (
+              locations.map(l => (
+                <option key={l.id} value={l.id}>{l.label} {l.id !== ALL_ID ? `(${l.id})` : ''}</option>
+              ))
+            )}
           </select>
         </div>
+
         <div>
-          <label className="block text-sm text-gray-600">Date</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="rounded border px-3 py-2 bg-white" />
+          <label className="block text-sm text-gray-600 mb-1">วันที่</label>
+          <input
+            type="date"
+            className="rounded border px-3 py-2 bg-white"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
         </div>
-        <div className="ml-auto flex gap-2">
-          <a
-            className="px-4 py-2 rounded-lg border bg-white"
-            href={`/api/history/csv?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
-            target="_blank" rel="noreferrer"
+
+        <div className="flex gap-2">
+          <button
+            className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] disabled:opacity-40"
+            onClick={fetchHistory}
+            disabled={!location || !date || loading}
           >
-            Download CSV
+            {loading ? 'กำลังโหลด…' : 'ดูข้อมูล'}
+          </button>
+
+          {/* ใช้ลิงก์เดียวกันทั้ง Single / ALL (server ทำให้แล้ว) */}
+          <a
+            className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50"
+            href={csvHref}
+            onClick={(e) => { if (csvHref === '#') e.preventDefault(); }}
+          >
+            ดาวน์โหลด CSV
           </a>
           <a
-            className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0]"
-            href={`/api/history/pdf?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`}
-            target="_blank" rel="noreferrer"
+            className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50"
+            href={pdfHref}
+            onClick={(e) => { if (pdfHref === '#') e.preventDefault(); }}
           >
-            Download PDF
+            ดาวน์โหลด PDF
           </a>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border p-4">
-        {loading ? <div>Loading…</div> : rows.length === 0 ? (
-          <div className="text-gray-600">No data</div>
+      {/* ตาราง */}
+      <div className="rounded-xl border bg-white p-4">
+        {rows.length === 0 ? (
+          <div className="text-gray-600">{loading ? 'กำลังโหลด…' : 'ไม่มีข้อมูล'}</div>
         ) : (
-          <div className="overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b">
-                  <th className="py-2 pr-2">Time</th>
-                  <th className="py-2 pr-2">Bill</th>
-                  <th className="py-2 pr-2">Items</th>
-                  <th className="py-2 pr-2">Freebies</th>
-                  <th className="py-2 pr-2">Qty</th>
-                  <th className="py-2 pr-2">Payment</th>
-                  <th className="py-2 pr-2">Total</th>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-left border-b">
+                <tr className="[&>th]:py-2 [&>th]:px-2">
+                  {location === ALL_ID && <th>Location</th>}
+                  <th>Time</th>
+                  <th>Bill</th>
+                  <th>Items</th>
+                  <th>Qty</th>
+                  <th>Payment</th>
+                  <th>Total</th>
+                  <th>Freebies</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, idx) => (
-                  <tr key={idx} className="border-b last:border-0">
-                    <td className="py-2 pr-2">{r.time}</td>
-                    <td className="py-2 pr-2">{r.billNo}</td>
-                    <td className="py-2 pr-2 whitespace-pre-wrap">{r.items}</td>
-                    <td className="py-2 pr-2 whitespace-pre-wrap text-green-700">{r.freebies}</td>
-                    <td className="py-2 pr-2">{r.totalQty}</td>
-                    <td className="py-2 pr-2">{r.payment}</td>
-                    <td className="py-2 pr-2">{r.total.toFixed(2)}</td>
+                  <tr key={idx} className="border-b last:border-0 [&>td]:py-2 [&>td]:px-2">
+                    {location === ALL_ID && <td>{r.location}</td>}
+                    <td>{r.time}</td>
+                    <td>{r.billNo}</td>
+                    <td className="max-w-[520px] whitespace-pre-wrap break-words">{r.items}</td>
+                    <td>{r.totalQty}</td>
+                    <td>{r.payment}</td>
+                    <td>{(r.total ?? 0).toFixed(2)}</td>
+                    <td className="max-w-[320px] whitespace-pre-wrap break-words">{r.freebies}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 text-sm">
-        <div className="bg-white rounded-xl border p-3">Bills: <b>{totals.count}</b></div>
-        <div className="bg-white rounded-xl border p-3">Total Qty: <b>{totals.totalQty}</b></div>
-        <div className="bg-white rounded-xl border p-3">Total Amount: <b>{totals.totalAmount.toFixed(2)} THB</b></div>
-        <div className="bg-white rounded-xl border p-3">Freebies Amount: <b>{(totals.freebiesAmount || 0).toFixed(2)} THB</b></div>
-        <div className="bg-white rounded-xl border p-3">
-          By Payment:&nbsp;
-          {Object.keys(totals.byPayment).length === 0 ? '—' :
-            Object.entries(totals.byPayment).map(([k,v]) => `${k}: ${v.toFixed(2)} THB`).join(' | ')
-          }
-        </div>
-        {/* ✅ เพิ่ม 2 บัตรสรุปฟรีบี้ส์ตามที่ขอ */}
-        <div className="bg-white rounded-xl border p-3">Total Freebies Qty: <b>{freebiesAgg.totalFreebiesQty}</b></div>
-        <div className="bg-white rounded-xl border p-3 col-span-full">
-          Freebies List:&nbsp;
-          <span className="text-green-700">{freebiesAgg.list || '—'}</span>
-        </div>
+        {/* สรุปผล */}
+        {totals && (
+          <div className="mt-4 text-sm">
+            <div className="font-semibold">Summary</div>
+            <div>Bills: {totals.count} | Total Qty: {totals.totalQty}</div>
+            <div>Total Amount: {totals.totalAmount.toFixed(2)} THB</div>
+            <div>Freebies Amount: {totals.freebiesAmount.toFixed(2)} THB</div>
+            {totals.byPayment && (
+              <div className="text-gray-700">
+                By Payment: {Object.entries(totals.byPayment).map(([k, v]) => `${k}: ${v.toFixed(2)} THB`).join(' | ')}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </main>
-  );
-}
-
-export default function HistoryPage() {
-  return (
-    <Suspense fallback={<main className="min-h-screen p-6">Loading…</main>}>
-      <Inner />
-    </Suspense>
   );
 }

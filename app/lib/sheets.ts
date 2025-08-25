@@ -131,6 +131,46 @@ export async function ensureSheetExists(
   });
 }
 
+/** ---------- Locations helpers (ใหม่) ---------- */
+// อ่านรายชื่อสาขาจากแท็บ "Locations" (คอลัมน์ A: ID, B: Label)
+// คืนเป็นอาร์เรย์ของรหัสสาขา (ตัวพิมพ์ใหญ่, unique)
+export async function listLocationIds(
+  sheets: any,
+  spreadsheetId: string
+): Promise<string[]> {
+  // ให้มีแท็บ Locations เสมอ + header
+  await ensureSheetExists(sheets, spreadsheetId, 'Locations');
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `Locations!A1:B1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [['ID', 'Label']] },
+  });
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `Locations!A:B`,
+  });
+
+  const rows = (res.data.values || []).slice(1);
+  const ids = rows
+    .map((r) => (r?.[0] || '').toString().trim().toUpperCase())
+    .filter(Boolean);
+
+  // unique
+  return Array.from(new Set(ids));
+}
+
+// ใช้กรณีอยากได้ "ชุดสาขา" แบบ fallback: ถ้า Locations ยังว่าง -> ใช้ ALLOWED_TABS
+export async function getDynamicLocationSet(
+  sheets: any,
+  spreadsheetId: string
+): Promise<Set<string>> {
+  const ids = await listLocationIds(sheets, spreadsheetId);
+  if (ids.length > 0) return new Set(ids);
+  return new Set(Array.from(ALLOWED_TABS));
+}
+
 /** ---------- Parsers ---------- */
 function parseNumberCell(x: any) {
   const n = Number(String(x ?? '').replace(/,/g, '').trim());

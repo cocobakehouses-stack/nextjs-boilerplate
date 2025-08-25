@@ -2,7 +2,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
 import { products as FALLBACK_PRODUCTS } from '../data/products'; // fallback เท่านั้น
@@ -106,21 +105,19 @@ export default function POSPage() {
     return { premium, levain, soft };
   }, [allProducts]);
 
-  // ---------- Add new product (inline) — collapsible ----------
+  // ---------- Add new product (inline) ----------
   const [newName, setNewName] = useState('');
   const [newPrice, setNewPrice] = useState<number | ''>('');
   const [busyAddProduct, setBusyAddProduct] = useState(false);
 
-  // สถานะย่อ/ขยาย + remember ใน localStorage
-  const [addOpen, setAddOpen] = useState<boolean>(true);
+  // เพิ่ม toggle พับ/ขยาย
+  const [addPanelOpen, setAddPanelOpen] = useState<boolean>(() => {
+    const raw = localStorage.getItem('pos_add_panel_open');
+    return raw === null ? true : raw === '1';
+  });
   useEffect(() => {
-    const saved = localStorage.getItem('pos_add_open');
-    if (saved === '0') setAddOpen(false);
-    if (saved === '1') setAddOpen(true);
-  }, []);
-  useEffect(() => {
-    localStorage.setItem('pos_add_open', addOpen ? '1' : '0');
-  }, [addOpen]);
+    localStorage.setItem('pos_add_panel_open', addPanelOpen ? '1' : '0');
+  }, [addPanelOpen]);
 
   async function addNewProduct() {
     const name = newName.trim();
@@ -138,6 +135,7 @@ export default function POSPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Add product failed');
+      // reload list
       await reloadProducts();
       setNewName('');
       setNewPrice('');
@@ -180,6 +178,32 @@ export default function POSPage() {
   const totalQty = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
   const netTotal = useMemo(() => Math.max(0, subtotal - freebiesValue), [subtotal, freebiesValue]);
 
+  // ---------- Freebies ops ----------
+  const addFreebie = () => {
+    const prod = allProducts.find((p) => p.id === freebiePick);
+    if (!prod) return;
+    setFreebies((prev) => {
+      const idx = prev.findIndex((f) => f.name === prod.name);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
+        return next;
+      }
+      return [...prev, { name: prod.name, qty: 1, price: prod.price }];
+    });
+  };
+
+  const changeFreebieQty = (name: string, qty: number) => {
+    setFreebies((prev) =>
+      qty <= 0
+        ? prev.filter((f) => f.name !== name)
+        : prev.map((f) => (f.name === name ? { ...f, qty } : f))
+    );
+  };
+
+  const removeFreebie = (name: string) =>
+    setFreebies((prev) => prev.filter((f) => f.name !== name));
+
   // ---------- Navigation ----------
   const goSummary = () => {
     if (!location) return alert('กรุณาเลือกสถานที่ก่อนใช้งาน');
@@ -205,28 +229,29 @@ export default function POSPage() {
       {/* Header */}
       <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Link
+          <a
             href="/"
-            className="px-3 py-1 rounded-lg border hover:bg-white"
-            title="กลับหน้า Home"
+            className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50"
+            title="Home"
           >
             Home
-          </Link>
+          </a>
           <h1 className="text-3xl font-bold">Coco Bakehouse POS</h1>
         </div>
+
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-700">
             Location: <b>{location ?? '— เลือกก่อนใช้งาน —'}</b>
           </span>
           <button
             onClick={() => { localStorage.removeItem('pos_location'); setLocation(null); }}
-            className="px-3 py-1 rounded-lg border hover:bg-white"
+            className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50"
           >
             เปลี่ยนสถานที่
           </button>
           {location && (
             <a
-              className="px-3 py-1 rounded-lg border hover:bg-white"
+              className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50"
               target="_blank" rel="noreferrer"
               href={`/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(dateStr)}`}
               title="Show history (open in new tab)"
@@ -264,23 +289,20 @@ export default function POSPage() {
           {/* CART */}
           {step === 'cart' && (
             <>
-              {/* Add new product inline — collapsible */}
-              <div className="rounded-xl border bg-white mb-4">
-                <div className="p-4 flex items-center justify-between">
+              {/* Add new product panel (collapsible) */}
+              <div className="rounded-xl border bg-white mb-4 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3">
                   <div className="font-semibold">เพิ่มเมนูใหม่ (บันทึกลงแท็บ Products)</div>
                   <button
-                    onClick={() => setAddOpen((s) => !s)}
-                    className="px-3 py-1 rounded-lg border hover:bg-gray-50 text-sm"
-                    aria-expanded={addOpen}
-                    aria-controls="add-product-panel"
-                    title={addOpen ? 'ย่อ' : 'ขยาย'}
+                    onClick={() => setAddPanelOpen((s) => !s)}
+                    className="px-3 py-1 rounded-lg border bg-white text-sm hover:bg-gray-50"
                   >
-                    {addOpen ? 'ย่อ' : 'ขยาย'}
+                    {addPanelOpen ? 'ย่อ' : 'ขยาย'}
                   </button>
                 </div>
 
-                {addOpen && (
-                  <div id="add-product-panel" className="p-4 pt-0">
+                {addPanelOpen && (
+                  <div className="p-4 pt-0">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <input
                         className="rounded-lg border px-3 py-2"
@@ -469,7 +491,10 @@ export default function POSPage() {
                   <div className="mt-3 space-y-2">
                     {freebies.map((f) => (
                       <div key={f.name} className="flex items-center justify-between border-b pb-1">
-                        <div className="text-sm">{f.name} × {f.qty} <span className="text-gray-500">({f.price} THB/ชิ้น)</span></div>
+                        <div className="text-sm">
+                          {f.name} × {f.qty}{' '}
+                          <span className="text-gray-500">({f.price} THB/ชิ้น)</span>
+                        </div>
                         <div className="flex items-center gap-2">
                           <button className="px-2 py-1 border rounded" onClick={() => changeFreebieQty(f.name, f.qty - 1)}>-</button>
                           <span>{f.qty}</span>

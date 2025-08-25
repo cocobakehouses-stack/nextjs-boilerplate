@@ -1,14 +1,28 @@
 // app/api/history/csv/route.ts
 import { NextResponse } from 'next/server';
+import { google } from 'googleapis';
 import {
   ALLOWED_TABS,
   fetchHistory,
   toBangkokDateString,
+  getAuth,
+  ensureSheetExists,
   type HistoryRow,
 } from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const LOC_TAB = 'Locations'; // A: ID, B: Label
+
+async function listLocationIds(spreadsheetId: string) {
+  const auth = getAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+  await ensureSheetExists(sheets, spreadsheetId, LOC_TAB);
+  const r = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${LOC_TAB}!A:A` });
+  const rows = (r.data.values || []).slice(1);
+  return rows.map(x => (x?.[0] || '').toString().trim().toUpperCase()).filter(Boolean);
+}
 
 export async function GET(req: Request) {
   try {
@@ -17,48 +31,58 @@ export async function GET(req: Request) {
     const location = (searchParams.get('location') || 'ORDERS').toUpperCase();
     const date = searchParams.get('date') || toBangkokDateString();
 
-    if (!ALLOWED_TABS.has(location)) {
+    if (location !== 'ALL' && !ALLOWED_TABS.has(location)) {
       return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
     }
 
-    // ✅ เรียกตาม signature ปัจจุบัน: (spreadsheetId, tabTitle, date)
-    const { rows } = await fetchHistory(spreadsheetId, location, date);
+    // header: ถ้า ALL จะเพิ่มคอลัมน์ Location
+    const header = location === 'ALL'
+      ? ['Location','Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount']
+      : ['Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount'];
 
-    // เผื่อ type ในโปรเจกต์ยังไม่ได้ export ให้ cast เป็น HistoryRow[]
-    const data: HistoryRow[] = rows as HistoryRow[];
+    let lines: string[] = [];
 
-    // Header รวม FreebiesAmount ตามที่ต้องการ
-    const header = [
-      'Date',
-      'Time',
-      'BillNo',
-      'Items',
-      'Freebies',
-      'TotalQty',
-      'Payment',
-      'Total',
-      'FreebiesAmount',
-    ];
+    if (location === 'ALL') {
+      const ids = await listLocationIds(spreadsheetId);
+      const merged: HistoryRow[] = [];
+      for (const id of ids) {
+        const { rows } = await fetchHistory(spreadsheetId, id, date);
+        const list = (rows as HistoryRow[]).map(r => ({ ...r, location: id }));
+        merged.push(...list);
+      }
+      // แปลงเป็น CSV
+      lines = merged.map(r => ([
+        r.location || '',
+        r.date || '',
+        r.time || '',
+        r.billNo || '',
+        JSON.stringify(r.items || ''),
+        JSON.stringify(r.freebies || ''),
+        String(r.totalQty ?? 0),
+        r.payment || '',
+        (r.total ?? 0).toFixed(2),
+        (r.freebiesAmount ?? 0).toFixed(2),
+      ].join(',')));
+    } else {
+      const { rows } = await fetchHistory(spreadsheetId, location, date);
+      const list = rows as HistoryRow[];
+      lines = list.map(r => ([
+        r.date || '',
+        r.time || '',
+        r.billNo || '',
+        JSON.stringify(r.items || ''),
+        JSON.stringify(r.freebies || ''),
+        String(r.totalQty ?? 0),
+        r.payment || '',
+        (r.total ?? 0).toFixed(2),
+        (r.freebiesAmount ?? 0).toFixed(2),
+      ].join(',')));
+    }
 
-    const csvLines = [
-      header.join(','),
-      ...data.map((r) =>
-        [
-          r.date,
-          r.time,
-          r.billNo,
-          JSON.stringify(r.items),     // กัน comma แตกคอลัมน์
-          JSON.stringify(r.freebies),  // กัน comma แตกคอลัมน์
-          String(r.totalQty),
-          r.payment,
-          (r.total ?? 0).toFixed(2),
-          (r.freebiesAmount ?? 0).toFixed(2),
-        ].join(',')
-      ),
-    ];
-
-    const csv = csvLines.join('\n');
-    const fileName = `EOD_${location}_${date}.csv`;
+    const csv = [header.join(','), ...lines].join('\n');
+    const fileName = location === 'ALL'
+      ? `EOD_ALL_${date}.csv`
+      : `EOD_${location}_${date}.csv`;
 
     return new NextResponse(csv, {
       headers: {

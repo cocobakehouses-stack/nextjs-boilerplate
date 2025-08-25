@@ -15,13 +15,17 @@ export const dynamic = 'force-dynamic';
 
 const LOC_TAB = 'Locations'; // A: ID, B: Label
 
+type LocalHistoryRow = HistoryRow & { location?: string };
+
 async function listLocationIds(spreadsheetId: string) {
   const auth = getAuth();
   const sheets = google.sheets({ version: 'v4', auth });
   await ensureSheetExists(sheets, spreadsheetId, LOC_TAB);
   const r = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${LOC_TAB}!A:A` });
   const rows = (r.data.values || []).slice(1);
-  return rows.map(x => (x?.[0] || '').toString().trim().toUpperCase()).filter(Boolean);
+  return rows
+    .map(x => (x?.[0] || '').toString().trim().toUpperCase())
+    .filter(Boolean);
 }
 
 export async function GET(req: Request) {
@@ -35,54 +39,55 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
     }
 
-    // header: ถ้า ALL จะเพิ่มคอลัมน์ Location
-    const header = location === 'ALL'
-      ? ['Location','Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount']
-      : ['Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount'];
+    const header =
+      location === 'ALL'
+        ? ['Location','Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount']
+        : ['Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount'];
 
     let lines: string[] = [];
 
     if (location === 'ALL') {
       const ids = await listLocationIds(spreadsheetId);
-      const merged: HistoryRow[] = [];
+      const merged: LocalHistoryRow[] = [];
       for (const id of ids) {
         const { rows } = await fetchHistory(spreadsheetId, id, date);
-        const list = (rows as HistoryRow[]).map(r => ({ ...r, location: id }));
+        const list = (rows as HistoryRow[]).map<LocalHistoryRow>(r => ({ ...r, location: id }));
         merged.push(...list);
       }
-      // แปลงเป็น CSV
-      lines = merged.map(r => ([
-        r.location || '',
-        r.date || '',
-        r.time || '',
-        r.billNo || '',
-        JSON.stringify(r.items || ''),
-        JSON.stringify(r.freebies || ''),
-        String(r.totalQty ?? 0),
-        r.payment || '',
-        (r.total ?? 0).toFixed(2),
-        (r.freebiesAmount ?? 0).toFixed(2),
-      ].join(',')));
+      lines = merged.map((r) =>
+        [
+          r.location || '',
+          r.date || '',
+          r.time || '',
+          r.billNo || '',
+          JSON.stringify(r.items || ''),
+          JSON.stringify(r.freebies || ''),
+          String(r.totalQty ?? 0),
+          r.payment || '',
+          (r.total ?? 0).toFixed(2),
+          (r.freebiesAmount ?? 0).toFixed(2),
+        ].join(',')
+      );
     } else {
       const { rows } = await fetchHistory(spreadsheetId, location, date);
       const list = rows as HistoryRow[];
-      lines = list.map(r => ([
-        r.date || '',
-        r.time || '',
-        r.billNo || '',
-        JSON.stringify(r.items || ''),
-        JSON.stringify(r.freebies || ''),
-        String(r.totalQty ?? 0),
-        r.payment || '',
-        (r.total ?? 0).toFixed(2),
-        (r.freebiesAmount ?? 0).toFixed(2),
-      ].join(',')));
+      lines = list.map((r) =>
+        [
+          r.date || '',
+          r.time || '',
+          r.billNo || '',
+          JSON.stringify(r.items || ''),
+          JSON.stringify(r.freebies || ''),
+          String(r.totalQty ?? 0),
+          r.payment || '',
+          (r.total ?? 0).toFixed(2),
+          (r.freebiesAmount ?? 0).toFixed(2),
+        ].join(',')
+      );
     }
 
     const csv = [header.join(','), ...lines].join('\n');
-    const fileName = location === 'ALL'
-      ? `EOD_ALL_${date}.csv`
-      : `EOD_${location}_${date}.csv`;
+    const fileName = location === 'ALL' ? `EOD_ALL_${date}.csv` : `EOD_${location}_${date}.csv`;
 
     return new NextResponse(csv, {
       headers: {

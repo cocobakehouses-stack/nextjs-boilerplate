@@ -152,10 +152,11 @@ export async function listLocationIds(
     range: `Locations!A:B`,
   });
 
-  const rows = (res.data.values || []).slice(1);
+  // ✅ ใส่ชนิดให้ rows และพารามิเตอร์ใน map เพื่อกัน implicit any
+  const rows: (string | undefined)[][] = (res.data.values || []).slice(1) as (string | undefined)[][];
   const ids = rows
-    .map((r) => (r?.[0] || '').toString().trim().toUpperCase())
-    .filter(Boolean);
+    .map((r: (string | undefined)[]) => (r?.[0] ?? '').toString().trim().toUpperCase())
+    .filter((s: string): s is string => s.length > 0);
 
   // unique
   return Array.from(new Set(ids));
@@ -196,16 +197,16 @@ export async function fetchHistory(
   const rows = res.data.values || [];
   const data = rows.slice(1); // skip header
 
-  const all: HistoryRow[] = data.map((r) => ({
-    date: (r[0] || '').toString().trim(),
-    time: (r[1] || '').toString().trim(),
-    billNo: (r[2] || '').toString().trim(),
-    items: (r[3] || '').toString().trim(),
-    freebies: (r[4] || '').toString().trim(),
-    totalQty: parseNumberCell(r[5]),
-    payment: (r[6] || '').toString().trim(),
-    total: parseNumberCell(r[7]),
-    freebiesAmount: parseNumberCell(r[8]),
+  const all: HistoryRow[] = data.map((r: any[]) => ({
+    date: (r?.[0] ?? '').toString().trim(),
+    time: (r?.[1] ?? '').toString().trim(),
+    billNo: (r?.[2] ?? '').toString().trim(),
+    items: (r?.[3] ?? '').toString().trim(),
+    freebies: (r?.[4] ?? '').toString().trim(),
+    totalQty: parseNumberCell(r?.[5]),
+    payment: (r?.[6] ?? '').toString().trim(),
+    total: parseNumberCell(r?.[7]),
+    freebiesAmount: parseNumberCell(r?.[8]),
   }));
 
   const rowsForDate = all.filter((r) => r.date === date);
@@ -234,16 +235,16 @@ export async function fetchHistoryRange(
   const rows = res.data.values || [];
   const data = rows.slice(1);
 
-  const all: HistoryRow[] = data.map((r) => ({
-    date: (r[0] || '').toString().trim(),
-    time: (r[1] || '').toString().trim(),
-    billNo: (r[2] || '').toString().trim(),
-    items: (r[3] || '').toString().trim(),
-    freebies: (r[4] || '').toString().trim(),
-    totalQty: parseNumberCell(r[5]),
-    payment: (r[6] || '').toString().trim(),
-    total: parseNumberCell(r[7]),
-    freebiesAmount: parseNumberCell(r[8]),
+  const all: HistoryRow[] = data.map((r: any[]) => ({
+    date: (r?.[0] ?? '').toString().trim(),
+    time: (r?.[1] ?? '').toString().trim(),
+    billNo: (r?.[2] ?? '').toString().trim(),
+    items: (r?.[3] ?? '').toString().trim(),
+    freebies: (r?.[4] ?? '').toString().trim(),
+    totalQty: parseNumberCell(r?.[5]),
+    payment: (r?.[6] ?? '').toString().trim(),
+    total: parseNumberCell(r?.[7]),
+    freebiesAmount: parseNumberCell(r?.[8]),
   }));
 
   // filter by date range inclusive

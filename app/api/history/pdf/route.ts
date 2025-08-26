@@ -22,7 +22,7 @@ type Row = {
   total?: number;
 };
 
-// ✅ ใช้ InstanceType<typeof PDFDocument> แทนการอ้าง PDFDocument เป็น type ตรงๆ
+// ใช้ InstanceType<typeof PDFDocument> แทนการอ้าง PDFDocument เป็น type ตรง ๆ
 function pdfFromBuffers(make: (doc: InstanceType<typeof PDFDocument>) => void) {
   const doc = new PDFDocument({ size: 'A4', margin: 36 });
   const chunks: Buffer[] = [];
@@ -57,22 +57,24 @@ export async function GET(req: Request) {
   const date = url.searchParams.get('date') || '';
   const filename = `history_${loc}_${date || 'unknown'}.pdf`;
 
-  // ถ้าไม่มี date — สร้าง PDF error แทนการตอบ JSON
+  // ไม่มี date -> ส่ง PDF แจ้ง error
   if (!date) {
     const bytes = await pdfFromBuffers((doc) => {
       renderErrorPage(doc, 'Error: missing date', { location: loc });
     });
-    return new NextResponse(bytes, {
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    return new NextResponse(blob, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Cache-Control': 'no-store',
+        'Content-Length': String(bytes.byteLength),
       },
     });
   }
 
-  // ดึงข้อมูลจาก /api/history
+  // โหลดข้อมูลจาก /api/history
   const api = `${url.origin}/api/history?location=${encodeURIComponent(
     loc
   )}&date=${encodeURIComponent(date)}`;
@@ -89,12 +91,14 @@ export async function GET(req: Request) {
           status: res.status,
         });
       });
-      return new NextResponse(bytes, {
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      return new NextResponse(blob, {
         status: 200,
         headers: {
           'Content-Type': 'application/pdf',
           'Content-Disposition': `attachment; filename="${filename}"`,
           'Cache-Control': 'no-store',
+          'Content-Length': String(bytes.byteLength),
         },
       });
     }
@@ -109,17 +113,19 @@ export async function GET(req: Request) {
         message: e?.message || String(e),
       });
     });
-    return new NextResponse(bytes, {
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    return new NextResponse(blob, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Cache-Control': 'no-store',
+        'Content-Length': String(bytes.byteLength),
       },
     });
   }
 
-  // ✅ กรณีปกติ: สร้าง PDF รายงาน
+  // กรณีปกติ: สร้าง PDF รายงาน
   const bytes = await pdfFromBuffers((doc) => {
     doc.fontSize(16).text(`End of Day – ${date}`);
     doc.moveDown(0.3);
@@ -177,7 +183,9 @@ export async function GET(req: Request) {
     }
   });
 
-  return new NextResponse(bytes, {
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+
+  return new NextResponse(blob, {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',

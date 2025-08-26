@@ -1,6 +1,15 @@
 // app/page.tsx
 'use client';
 
+import HeaderMenu from '../components/HeaderMenu';
+
+export default function POSPage() {
+  // ... โค้ดอื่น
+
+  return (
+    <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-[#fffff0]">
+      <HeaderMenu />   {/* ✅ เมนู */}
+      {/* ของเดิมทั้งหมด */}
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import LocationPicker from './components/LocationPicker';

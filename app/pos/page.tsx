@@ -1,14 +1,11 @@
 // app/pos/page.tsx
 'use client';
-'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
 import { products as FALLBACK_PRODUCTS } from '../data/products';
-
-// (types/function เดิมของหมวยคงไว้ทั้งหมด)
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +33,6 @@ export default function POSPage() {
   // Location
   const [location, setLocation] = useState<LocationId | null>(null);
   useEffect(() => {
-    // อ่าน localStorage เฉพาะฝั่ง client
     try {
       const saved = (localStorage.getItem('pos_location') as LocationId | null) || null;
       if (saved) setLocation(saved);
@@ -54,7 +50,7 @@ export default function POSPage() {
   // Core states
   const [cart, setCart] = useState<CartItem[]>([]);
   const [added, setAdded] = useState<Record<number, boolean>>({});
-  const [payment, setPayment] = useState<'cash' | 'promptpay' | null>(null);
+  const [payment, setPayment] = useState<'cash' | 'promptpay' | 'lineman' | null>(null);
 
   // ---------- Products from API (with fallback) ----------
   const [products, setProducts] = useState<Product[]>([]);
@@ -74,17 +70,12 @@ export default function POSPage() {
       setLoadingProducts(false);
     }
   }
-
-  useEffect(() => {
-    reloadProducts();
-  }, []);
+  useEffect(() => { reloadProducts(); }, []);
 
   // Freebies
   const [freebies, setFreebies] = useState<Line[]>([]);
   const [freebiePick, setFreebiePick] = useState<number>(FALLBACK_PRODUCTS[0]?.id ?? 0);
-  useEffect(() => {
-    if (products.length > 0) setFreebiePick(products[0].id);
-  }, [products]);
+  useEffect(() => { if (products.length > 0) setFreebiePick(products[0].id); }, [products]);
 
   // Date/Time
   const [dateStr, setDateStr] = useState<string>(toDateString(new Date()));
@@ -93,7 +84,7 @@ export default function POSPage() {
   // For success screen
   const [isSubmitting, setSubmitting] = useState(false);
   const [lastSaved, setLastSaved] = useState<{
-    billNo: string; date: string; time: string; payment: 'cash' | 'promptpay'; total: number;
+    billNo: string; date: string; time: string; payment: 'cash' | 'promptpay' | 'lineman'; total: number;
   } | null>(null);
 
   // ---------- Products: auto-sort + grouping ----------
@@ -120,20 +111,16 @@ export default function POSPage() {
   const [newPrice, setNewPrice] = useState<number | ''>('');
   const [busyAddProduct, setBusyAddProduct] = useState(false);
 
-  // ✅ ทำให้ panel “เพิ่มเมนูใหม่” ย่อ/ขยายได้ โดยไม่แตะ localStorage ตอน SSR
+  // Add panel open state (persist)
   const [addPanelOpen, setAddPanelOpen] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true; // default ตอน SSR
+    if (typeof window === 'undefined') return true;
     try {
       const raw = window.localStorage.getItem('pos_add_panel_open');
       return raw === null ? true : raw === '1';
-    } catch {
-      return true;
-    }
+    } catch { return true; }
   });
   useEffect(() => {
-    try {
-      window.localStorage.setItem('pos_add_panel_open', addPanelOpen ? '1' : '0');
-    } catch {}
+    try { window.localStorage.setItem('pos_add_panel_open', addPanelOpen ? '1' : '0'); } catch {}
   }, [addPanelOpen]);
 
   async function addNewProduct() {
@@ -193,27 +180,14 @@ export default function POSPage() {
   const totalQty = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
   const netTotal = useMemo(() => Math.max(0, subtotal - freebiesValue), [subtotal, freebiesValue]);
 
-  // ---------- Freebies ops ----------
-  const addFreebie = () => {
-    const prod = allProducts.find((p) => p.id === freebiePick);
-    if (!prod) return;
-    setFreebies((prev) => {
-      const idx = prev.findIndex((f) => f.name === prod.name);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
-        return next;
-      }
-      return [...prev, { name: prod.name, qty: 1, price: prod.price }];
-    });
-  };
-  const changeFreebieQty = (name: string, qty: number) => {
-    setFreebies((prev) =>
-      qty <= 0 ? prev.filter((f) => f.name !== name) : prev.map((f) => (f.name === name ? { ...f, qty } : f))
-    );
-  };
-  const removeFreebie = (name: string) =>
-    setFreebies((prev) => prev.filter((f) => f.name !== name));
+  // ✅ LINEMAN: +20 ต่อชิ้น + ส่วนลด (optional)
+  const [linemanDiscount, setLinemanDiscount] = useState<number | ''>('');
+  const linemanMarkup = useMemo(() => (payment === 'lineman' ? totalQty * 20 : 0), [payment, totalQty]);
+  const discountValue = Number(linemanDiscount || 0);
+  const finalTotal = useMemo(() => {
+    const raw = netTotal + linemanMarkup - discountValue;
+    return Math.max(0, Number(raw.toFixed(2)));
+  }, [netTotal, linemanMarkup, discountValue]);
 
   // ---------- Navigation ----------
   const goSummary = () => {
@@ -229,7 +203,7 @@ export default function POSPage() {
     setStep('confirm');
   };
   const resetForNewBill = () => {
-    setCart([]); setAdded({}); setPayment(null); setFreebies([]); setLastSaved(null); setStep('cart');
+    setCart([]); setAdded({}); setPayment(null); setFreebies([]); setLastSaved(null); setStep('cart'); setLinemanDiscount('');
   };
 
   // ---------- UI ----------
@@ -240,13 +214,7 @@ export default function POSPage() {
       {/* Header */}
       <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <a
-            href="/"
-            className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50"
-            title="Home"
-          >
-            Home
-          </a>
+          <a href="/" className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50" title="Home">Home</a>
           <h1 className="text-3xl font-bold">Coco Bakehouse POS</h1>
         </div>
 
@@ -282,12 +250,7 @@ export default function POSPage() {
           <div className="mb-4 flex gap-2 text-sm">
             {(['cart', 'summary', 'confirm', 'success'] as Step[]).map((s, i) => (
               <div key={s} className="flex items-center gap-2">
-                <div
-                  className={classNames(
-                    'w-7 h-7 rounded-full flex items-center justify-center',
-                    step === s ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-white border'
-                  )}
-                >
+                <div className={classNames('w-7 h-7 rounded-full flex items-center justify-center', step === s ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-white border')}>
                   {i + 1}
                 </div>
                 <span className={step === s ? 'font-semibold' : ''}>
@@ -300,14 +263,11 @@ export default function POSPage() {
           {/* CART */}
           {step === 'cart' && (
             <>
-              {/* Add new product panel (collapsible) */}
+              {/* Add new product panel */}
               <div className="rounded-xl border bg-white mb-4 overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3">
                   <div className="font-semibold">เพิ่มเมนูใหม่ (บันทึกลงแท็บ Products)</div>
-                  <button
-                    onClick={() => setAddPanelOpen((s) => !s)}
-                    className="px-3 py-1 rounded-lg border bg-white text-sm hover:bg-gray-50"
-                  >
+                  <button onClick={() => setAddPanelOpen((s) => !s)} className="px-3 py-1 rounded-lg border bg-white text-sm hover:bg-gray-50">
                     {addPanelOpen ? 'ย่อ' : 'ขยาย'}
                   </button>
                 </div>
@@ -315,19 +275,8 @@ export default function POSPage() {
                 {addPanelOpen && (
                   <div className="p-4 pt-0">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <input
-                        className="rounded-lg border px-3 py-2"
-                        placeholder="ชื่อเมนู"
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                      />
-                      <input
-                        className="rounded-lg border px-3 py-2"
-                        placeholder="ราคา (เช่น 135)"
-                        inputMode="decimal"
-                        value={newPrice}
-                        onChange={(e) => setNewPrice(e.target.value === '' ? '' : Number(e.target.value))}
-                      />
+                      <input className="rounded-lg border px-3 py-2" placeholder="ชื่อเมนู" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                      <input className="rounded-lg border px-3 py-2" placeholder="ราคา (เช่น 135)" inputMode="decimal" value={newPrice} onChange={(e) => setNewPrice(e.target.value === '' ? '' : Number(e.target.value))} />
                       <button
                         className="rounded-lg px-4 py-2 bg-[#ac0000] text-[#fffff0] disabled:opacity-40"
                         onClick={addNewProduct}
@@ -340,9 +289,7 @@ export default function POSPage() {
                 )}
               </div>
 
-              {loadingProducts ? (
-                <div className="text-gray-600 mb-4">Loading products…</div>
-              ) : null}
+              {loadingProducts ? <div className="text-gray-600 mb-4">Loading products…</div> : null}
 
               {[
                 { title: 'Premium', items: grouped.premium },
@@ -359,10 +306,7 @@ export default function POSPage() {
                           <p className="text-gray-600 mb-3">{p.price} THB</p>
                           <button
                             onClick={() => addToCart(p)}
-                            className={classNames(
-                              'mt-auto w-full px-4 py-2 rounded text-[#fffff0]',
-                              added[p.id] ? 'bg-green-600' : 'bg-[#ac0000] hover:opacity-90'
-                            )}
+                            className={classNames('mt-auto w-full px-4 py-2 rounded text-[#fffff0]', added[p.id] ? 'bg-green-600' : 'bg-[#ac0000] hover:opacity-90')}
                           >
                             {added[p.id] ? 'Added!' : 'Add to Cart'}
                           </button>
@@ -373,18 +317,15 @@ export default function POSPage() {
                 )
               )}
 
-              {/* Sticky footer: Cart + ไปสรุปออเดอร์ */}
+              {/* Sticky footer */}
               <div className="fixed bottom-0 left-0 right-0 bg-[#fffff0]/95 backdrop-blur border-t">
                 <div className="mx-auto max-w-6xl p-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setCartOpen((s) => !s)}
-                      className="px-3 py-2 rounded-lg border bg-white"
-                    >
+                    <button onClick={() => setCartOpen((s) => !s)} className="px-3 py-2 rounded-lg border bg-white">
                       {cartOpen ? 'ปิดตะกร้า' : `Cart (${totalQty})`}
                     </button>
                     <div className="text-sm">
-                      รวมจำนวน: <b>{totalQty}</b> | ยอดรวม: <b>{subtotal}</b> THB
+                      รวมจำนวน: <b>{totalQty}</b> | ยอดรวม: <b>{subtotal.toFixed(2)}</b> THB
                     </div>
                   </div>
                   <button
@@ -396,7 +337,6 @@ export default function POSPage() {
                   </button>
                 </div>
 
-                {/* Cart drawer (inline) */}
                 {cartOpen && (
                   <div className="mx-auto max-w-6xl border-t bg-white">
                     <div className="p-3">
@@ -426,7 +366,6 @@ export default function POSPage() {
                   </div>
                 )}
               </div>
-              {/* spacer ให้ footer ไม่บัง content */}
               <div className="h-36" />
             </>
           )}
@@ -450,13 +389,19 @@ export default function POSPage() {
                     {cart.map((i) => (
                       <div key={i.id} className="flex justify-between text-sm border-b pb-1">
                         <div>{i.name} × {i.quantity}</div>
-                        <div>{i.price * i.quantity} THB</div>
+                        <div>{(i.price * i.quantity).toFixed(2)} THB</div>
                       </div>
                     ))}
                     <div className="pt-2 text-right">
-                      <div>Subtotal: <b>{subtotal}</b> THB</div>
-                      <div className="text-green-700">Freebies (-): <b>{freebiesValue}</b> THB</div>
-                      <div className="text-lg">Total: <b>{netTotal}</b> THB</div>
+                      <div>Subtotal: <b>{subtotal.toFixed(2)}</b> THB</div>
+                      <div className="text-green-700">Freebies (-): <b>{freebiesValue.toFixed(2)}</b> THB</div>
+                      {payment === 'lineman' && (
+                        <>
+                          <div className="text-blue-700">Markup (20×{totalQty}) (+): <b>{linemanMarkup.toFixed(2)}</b> THB</div>
+                          <div className="text-red-700">Discount (-): <b>{discountValue.toFixed(2)}</b> THB</div>
+                        </>
+                      )}
+                      <div className="text-lg">Total: <b>{finalTotal.toFixed(2)}</b> THB</div>
                     </div>
                   </div>
                 )}
@@ -478,7 +423,34 @@ export default function POSPage() {
                   >
                     พร้อมเพย์
                   </button>
+                  <button
+                    onClick={() => setPayment('lineman')}
+                    className={classNames('px-4 py-2 rounded-lg border', payment === 'lineman' ? 'bg-[#ac0000] text-[#fffff0] border-[#ac0000]' : 'hover:bg-gray-50')}
+                  >
+                    LINEMAN (+20/ชิ้น)
+                  </button>
                 </div>
+
+                {/* ส่วนลด (optional) แสดงเมื่อเลือก LINEMAN */}
+                {payment === 'lineman' && (
+                  <div className="mb-4 flex items-center gap-2">
+                    <label className="text-sm text-gray-700">ส่วนลด (บาท)</label>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      className="rounded-lg border px-3 py-2 w-32"
+                      placeholder="เช่น 10"
+                      value={linemanDiscount}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === '') return setLinemanDiscount('');
+                        const n = Number(v);
+                        if (!Number.isNaN(n)) setLinemanDiscount(n);
+                      }}
+                      min={0}
+                    />
+                  </div>
+                )}
 
                 <h3 className="font-semibold mb-2">ของแถม (Freebies)</h3>
                 <div className="flex gap-2 items-center">
@@ -534,7 +506,15 @@ export default function POSPage() {
                 <div><b>Time:</b> {timeStr}</div>
                 <div><b>Date:</b> {dateStr}</div>
                 <div><b>Payment:</b> {payment}</div>
-                <div><b>Total:</b> {netTotal} THB</div>
+                <div>Subtotal: {subtotal.toFixed(2)} THB</div>
+                <div>Freebies: -{freebiesValue.toFixed(2)} THB</div>
+                {payment === 'lineman' && (
+                  <>
+                    <div>Markup (20×{totalQty}): +{linemanMarkup.toFixed(2)} THB</div>
+                    <div>Discount: -{discountValue.toFixed(2)} THB</div>
+                  </>
+                )}
+                <div><b>Total:</b> {finalTotal.toFixed(2)} THB</div>
               </div>
 
               <div className="mt-6 flex gap-2">
@@ -549,10 +529,14 @@ export default function POSPage() {
                       location,
                       date: dateStr,
                       time: /^\d{2}:\d{2}(:\d{2})?$/.test(timeStr) ? (timeStr.length === 5 ? `${timeStr}:00` : timeStr) : toTimeString(new Date()),
-                      payment,
+                      payment, // 'cash' | 'promptpay' | 'lineman'
                       items: itemsPayload,
                       freebies,
-                      total: Number(netTotal.toFixed(2)),
+                      subtotal: Number(subtotal.toFixed(2)),
+                      freebiesAmount: Number(freebiesValue.toFixed(2)),
+                      linemanMarkup: Number(linemanMarkup.toFixed(2)),
+                      linemanDiscount: Number(discountValue.toFixed(2)),
+                      total: Number(finalTotal.toFixed(2)),
                     };
                     try {
                       setSubmitting(true);

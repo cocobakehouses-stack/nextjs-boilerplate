@@ -1,7 +1,7 @@
 // app/history/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
 
 type LocationRow = { id: string; label: string };
@@ -15,25 +15,13 @@ type HistoryRow = {
   payment: string;
   total: number;
   freebiesAmount: number;
-  location?: string; // เพิ่มไว้รองรับโหมด ALL
+  location?: string;
 };
-
-export default function HistoryPage() {
-  // …ของเดิมหมวย (ตัวเลือก location/date, โหลดข้อมูล ฯลฯ)
-
-  return (
-    <main className="min-h-screen bg-[#fffff0] p-4 sm:p-6 lg:p-8">
-      <HeaderMenu />
-      {/* ของเดิมทั้งหมดของหน้า History */}
-    </main>
-  );
-}
 
 const TZ = 'Asia/Bangkok';
 function toBangkokDateString(d = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
 }
-
 const ALL_ID = 'ALL';
 
 export default function HistoryPage() {
@@ -73,7 +61,7 @@ export default function HistoryPage() {
     load();
   }, []);
 
-  // รวมยอดข้ามหลายสาขา
+  // รวมยอดข้ามหลายสาขา (fallback เผื่อ backend ไม่รวมให้)
   function reduceTotals(all: HistoryRow[]) {
     const count = all.length;
     const totalQty = all.reduce((s, r) => s + (r.totalQty || 0), 0);
@@ -101,9 +89,7 @@ export default function HistoryPage() {
       const res = await fetch(url.toString(), { cache: 'no-store' });
       const data = await res.json();
 
-      // เซิร์ฟเวอร์จะรวมให้เรียบร้อยแล้วทั้ง 2 โหมด
       const list: HistoryRow[] = (data?.rows || []);
-      // เผื่อบางแถวไม่มี location เวลาเป็นสาขาเดียว
       const withLoc = list.map(r => (r.location ? r : { ...r, location: location === ALL_ID ? '' : location }));
 
       setRows(withLoc);
@@ -135,7 +121,8 @@ export default function HistoryPage() {
   }, [location, date]);
 
   return (
-    <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-[#fffff0]">
+    <main className="min-h-screen bg-[#fffff0] p-4 sm:p-6 lg:p-8">
+      <HeaderMenu />
       <h1 className="text-2xl font-bold mb-4">End of Day – History</h1>
 
       <div className="rounded-xl border bg-white p-4 mb-4 flex flex-col sm:flex-row gap-3 sm:items-end">
@@ -157,7 +144,9 @@ export default function HistoryPage() {
               <option>— ไม่มีสถานที่ —</option>
             ) : (
               locations.map(l => (
-                <option key={l.id} value={l.id}>{l.label} {l.id !== ALL_ID ? `(${l.id})` : ''}</option>
+                <option key={l.id} value={l.id}>
+                  {l.label} {l.id !== ALL_ID ? `(${l.id})` : ''}
+                </option>
               ))
             )}
           </select>
@@ -179,10 +168,9 @@ export default function HistoryPage() {
             onClick={fetchHistory}
             disabled={!location || !date || loading}
           >
-            {loading ? 'กำลังโหลด…' : 'ดูข้อมูล'}
+            {loading ? 'กำลังกำลังโหลด…' : 'ดูข้อมูล'}
           </button>
 
-          {/* ใช้ลิงก์เดียวกันทั้ง Single / ALL (server ทำให้แล้ว) */}
           <a
             className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50"
             href={csvHref}
@@ -200,7 +188,6 @@ export default function HistoryPage() {
         </div>
       </div>
 
-      {/* ตาราง */}
       <div className="rounded-xl border bg-white p-4">
         {rows.length === 0 ? (
           <div className="text-gray-600">{loading ? 'กำลังโหลด…' : 'ไม่มีข้อมูล'}</div>
@@ -237,7 +224,6 @@ export default function HistoryPage() {
           </div>
         )}
 
-        {/* สรุปผล */}
         {totals && (
           <div className="mt-4 text-sm">
             <div className="font-semibold">Summary</div>
@@ -246,7 +232,10 @@ export default function HistoryPage() {
             <div>Freebies Amount: {totals.freebiesAmount.toFixed(2)} THB</div>
             {totals.byPayment && (
               <div className="text-gray-700">
-                By Payment: {Object.entries(totals.byPayment).map(([k, v]) => `${k}: ${v.toFixed(2)} THB`).join(' | ')}
+                By Payment:{' '}
+                {Object.entries(totals.byPayment)
+                  .map(([k, v]) => `${k}: ${v.toFixed(2)} THB`)
+                  .join(' | ')}
               </div>
             )}
           </div>

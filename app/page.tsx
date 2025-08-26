@@ -22,10 +22,13 @@ export default function HomePage() {
 
         <div className="rounded-xl border bg-white p-4 mb-4">
           <div className="font-semibold mb-2">เลือกสถานที่</div>
-          <LocationPicker value={loc} onChange={(id) => {
-            setLoc(id);
-            localStorage.setItem('pos_location', id);
-          }} />
+          <LocationPicker
+            value={loc}
+            onChange={(id) => {
+              setLoc(id);
+              localStorage.setItem('pos_location', id);
+            }}
+          />
           <div className="flex gap-2">
             <button
               disabled={!loc}

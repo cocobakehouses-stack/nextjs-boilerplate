@@ -31,7 +31,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'missing date' }, { status: 400 });
   }
 
-  // โหลด JSON จาก /api/history
+  // ดึง JSON จาก /api/history
   const api = `${url.origin}/api/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`;
   const res = await fetch(api, { cache: 'no-store' });
   if (!res.ok) {
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
   const rows: Row[] = data?.rows || [];
   const totals: Totals | null = data?.totals || null;
 
-  // สร้าง PDF
+  // สร้างเอกสาร PDF
   const doc = new PDFDocument({ size: 'A4', margin: 36 });
 
   // เก็บ buffer
@@ -61,8 +61,8 @@ export async function GET(req: Request) {
 
   const includeLocCol = rows.some(r => r.location) || location === 'ALL';
   const header = includeLocCol
-    ? ['Location','Time','Bill','Qty','Payment','Total']
-    : ['Time','Bill','Qty','Payment','Total'];
+    ? ['Location', 'Time', 'Bill', 'Qty', 'Payment', 'Total']
+    : ['Time', 'Bill', 'Qty', 'Payment', 'Total'];
 
   doc.font('Helvetica-Bold').text(header.join('   |   '));
   doc.moveDown(0.2);
@@ -107,23 +107,16 @@ export async function GET(req: Request) {
   doc.end();
   const pdfBuffer = await bufferPromise;
 
-  // ✅ ส่งเป็น Blob (ปลอดภัยเรื่อง type: ไม่ติด SharedArrayBuffer)
-  const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
+  // ✅ ใช้ Uint8Array เพื่อให้ type เข้ากับ BodyInit แน่นอน (ArrayBufferView)
+  const body = new Uint8Array(pdfBuffer);
 
-  return new NextResponse(blob, {
+  return new NextResponse(body, {
     status: 200,
     headers: {
       'content-type': 'application/pdf',
+      'content-length': String(body.byteLength),
       'cache-control': 'no-store',
-      // ตั้งชื่อไฟล์เวลาเปิด/ดาวน์โหลด
       // 'content-disposition': `inline; filename="history_${location}_${date}.pdf"`,
     },
   });
-
-  // หรือถ้าชอบ Uint8Array:
-  // const body = new Uint8Array(pdfBuffer);
-  // return new NextResponse(body, {
-  //   status: 200,
-  //   headers: { 'content-type': 'application/pdf', 'cache-control': 'no-store' },
-  // });
 }

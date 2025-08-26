@@ -281,7 +281,7 @@ export default function POSPage() {
               <div key={s} className="flex items-center gap-2">
                 <div
                   className={classNames(
-                    'w-7 h-7 rounded-full flex items-center justify-center',
+                    'w-3 h-3 rounded-full flex items-left justify-left',
                     step === s ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-white border'
                   )}
                 >

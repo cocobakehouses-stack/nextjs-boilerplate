@@ -281,7 +281,7 @@ export default function POSPage() {
               <div key={s} className="flex items-center gap-2">
                 <div
                   className={classNames(
-                    'w-3 h-3 rounded-full flex items-left justify-left',
+                    'w-7 h-7 rounded-full flex items-center justify-center',
                     step === s ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-white border'
                   )}
                 >
@@ -300,7 +300,7 @@ export default function POSPage() {
               {/* Add new product panel (collapsible) */}
               <div className="rounded-xl border bg-white mb-4 overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3">
-                  <div className="font-semibold">เพิ่มเมนูใหม่</div>
+                  <div className="font-semibold">เพิ่มเมนูใหม่ (บันทึกลงแท็บ Products)</div>
                   <button
                     onClick={() => setAddPanelOpen((s) => !s)}
                     className="px-3 py-1 rounded-lg border bg-white text-sm hover:bg-gray-50"

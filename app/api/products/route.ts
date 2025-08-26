@@ -37,8 +37,11 @@ function parseNum(x: any) {
 }
 
 /** ---------- GET: list products ---------- */
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const includeAll = url.searchParams.get('all') === '1';
+
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
@@ -50,8 +53,7 @@ export async function GET() {
       range: `${PRODUCTS_TAB}!A:D`,
     });
 
-    const rows: string[][] = (res.data.values || []).slice(1);
-    const products: Product[] = rows
+    let products: Product[] = ((res.data.values || []).slice(1) as string[][])
       .map((r) => {
         const id = parseNum(r?.[0]);
         const name = (r?.[1] || '').toString().trim();
@@ -61,8 +63,10 @@ export async function GET() {
         if (!Number.isFinite(id) || !name || !Number.isFinite(price)) return null;
         return { id, name, price, active };
       })
-      .filter(Boolean)
-      .filter((p) => (p as Product).active !== false) as Product[];
+      .filter(Boolean) as Product[];
+
+    // POS: เฉพาะ active (default). หน้าแอดมิน: ?all=1
+    if (!includeAll) products = products.filter((p) => p.active !== false);
 
     products.sort((a, b) => b.price - a.price);
 
@@ -92,21 +96,19 @@ export async function POST(req: Request) {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // ensure sheet + header
     await ensureProductsSheetExists(sheets, spreadsheetId);
 
-    // read to compute next ID
+    // หา next id = max(id) + 1
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${PRODUCTS_TAB}!A:A`, // IDs column
+      range: `${PRODUCTS_TAB}!A:A`,
     });
-    const rows: string[][] = (res.data.values || []).slice(1);
-    const ids = rows
+    const ids = ((res.data.values || []).slice(1) as any[])
       .map((r) => parseNum(r?.[0]))
       .filter((n) => Number.isFinite(n)) as number[];
-    const nextId = ids.length > 0 ? Math.max(...ids) + 1 : 1;
+    const nextId = (ids.length ? Math.max(...ids) : 0) + 1;
 
-    // append new row (Active default TRUE)
+    // append (Active = TRUE)
     await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: `${PRODUCTS_TAB}!A:D`,
@@ -119,4 +121,57 @@ export async function POST(req: Request) {
     console.error('POST /api/products error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
   }
+}
+
+/** ---------- PATCH: toggle active ---------- */
+export async function PATCH(req: Request) {
+  try {
+    const { id, active } = await req.json();
+    const numId = Number(id);
+    if (!Number.isFinite(numId) || typeof active !== 'boolean') {
+      return NextResponse.json({ error: 'Invalid id/active' }, { status: 400 });
+    }
+
+    const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
+    const auth = getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    await ensureProductsSheetExists(sheets, spreadsheetId);
+
+    // อ่านทั้งตารางเพื่อหาแถวของ id
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${PRODUCTS_TAB}!A:D`,
+    });
+    const all = res.data.values || [];
+    const rows = all.slice(1); // ข้าม header
+
+    let rowIndex = -1; // index ใน rows (เริ่ม 0)
+    for (let i = 0; i < rows.length; i++) {
+      const rid = parseNum(rows[i]?.[0]);
+      if (rid === numId) { rowIndex = i; break; }
+    }
+    if (rowIndex < 0) {
+      return NextResponse.json({ error: 'ID not found' }, { status: 404 });
+    }
+
+    // คอลัมน์ D = Active → แถวจริง = rowIndex + 2 (เพราะ row 1 คือ header)
+    const targetRange = `${PRODUCTS_TAB}!D${rowIndex + 2}`;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: targetRange,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [[active ? 'TRUE' : 'FALSE']] },
+    });
+
+    return NextResponse.json({ ok: true, id: numId, active });
+  } catch (e: any) {
+    console.error('PATCH /api/products error', e?.message || e);
+    return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
+  }
+}
+
+/** ---------- OPTIONS: preflight ---------- */
+export async function OPTIONS() {
+  return NextResponse.json({ ok: true });
 }

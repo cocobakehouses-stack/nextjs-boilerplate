@@ -22,7 +22,8 @@ type Row = {
   total?: number;
 };
 
-function pdfFromBuffers(make: (doc: PDFDocument) => void) {
+// ✅ ใช้ InstanceType<typeof PDFDocument> แทนการอ้าง PDFDocument เป็น type ตรงๆ
+function pdfFromBuffers(make: (doc: InstanceType<typeof PDFDocument>) => void) {
   const doc = new PDFDocument({ size: 'A4', margin: 36 });
   const chunks: Buffer[] = [];
   const done = new Promise<Uint8Array>((resolve, reject) => {
@@ -35,7 +36,11 @@ function pdfFromBuffers(make: (doc: PDFDocument) => void) {
   return done;
 }
 
-function renderErrorPage(doc: PDFDocument, title: string, details?: Record<string, any>) {
+function renderErrorPage(
+  doc: InstanceType<typeof PDFDocument>,
+  title: string,
+  details?: Record<string, any>
+) {
   doc.fontSize(16).text(title);
   doc.moveDown();
   doc.fontSize(12);
@@ -52,6 +57,7 @@ export async function GET(req: Request) {
   const date = url.searchParams.get('date') || '';
   const filename = `history_${loc}_${date || 'unknown'}.pdf`;
 
+  // ถ้าไม่มี date — สร้าง PDF error แทนการตอบ JSON
   if (!date) {
     const bytes = await pdfFromBuffers((doc) => {
       renderErrorPage(doc, 'Error: missing date', { location: loc });
@@ -67,7 +73,9 @@ export async function GET(req: Request) {
   }
 
   // ดึงข้อมูลจาก /api/history
-  const api = `${url.origin}/api/history?location=${encodeURIComponent(loc)}&date=${encodeURIComponent(date)}`;
+  const api = `${url.origin}/api/history?location=${encodeURIComponent(
+    loc
+  )}&date=${encodeURIComponent(date)}`;
 
   let rows: Row[] = [];
   let totals: Totals | null = null;
@@ -111,7 +119,7 @@ export async function GET(req: Request) {
     });
   }
 
-  // ✅ สร้าง PDF (กรณีปกติ)
+  // ✅ กรณีปกติ: สร้าง PDF รายงาน
   const bytes = await pdfFromBuffers((doc) => {
     doc.fontSize(16).text(`End of Day – ${date}`);
     doc.moveDown(0.3);

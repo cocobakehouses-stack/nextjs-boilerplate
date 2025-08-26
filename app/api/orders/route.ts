@@ -12,9 +12,17 @@ type Body = {
   billNo?: string;
   date?: string;
   time?: string;
-  payment: 'cash' | 'promptpay';
+  payment: 'cash' | 'promptpay' | 'lineman';
   items: Line[];
   freebies?: Line[];
+
+  // ฟิลด์ใหม่จากฝั่ง POS (optional บางค่า)
+  subtotal?: number;
+  freebiesAmount?: number;
+  linemanMarkup?: number;
+  linemanDiscount?: number;
+
+  // ยอดสุดท้ายหลังคิดทุกอย่าง
   total: number;
 };
 
@@ -62,9 +70,17 @@ async function getNextBillNoForDate(sheets: any, spreadsheetId: string, title: s
 
 export async function POST(req: Request) {
   try {
-    const { location, billNo, date, time, payment, items, freebies = [], total } = (await req.json()) as Body;
+    const {
+      location, billNo, date, time, payment, items,
+      freebies = [],
+      subtotal: inSubtotal,
+      freebiesAmount: inFreebiesAmount,
+      linemanMarkup: inMarkup,
+      linemanDiscount: inDiscount,
+      total: inTotal,
+    } = (await req.json()) as Body;
 
-    if (!location || !items?.length || !payment || typeof total !== 'number') {
+    if (!location || !items?.length || !payment || typeof inTotal !== 'number') {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
 
@@ -78,33 +94,60 @@ export async function POST(req: Request) {
     const { date: today, time: now } = nowDateTimeBangkok();
     const useDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : today;
     const useTime = normalizeTime(time) || now;
+
     let useBillNo = (billNo ?? '').trim();
     if (!useBillNo) useBillNo = await getNextBillNoForDate(sheets, spreadsheetId, tabTitle, useDate);
 
     const itemsText = items.map(i => `${i.name} x${i.qty}`).join('; ');
     const freebiesText = (freebies ?? []).map(f => `${f.name} x${f.qty}`).join('; ');
-    const totalQty = items.reduce((s, i) => s + (i.qty || 0), 0);
-    const freebiesValue = (freebies ?? []).reduce((s, f) => s + (Number(f.price) || 0) * (Number(f.qty) || 0), 0);
+
+    const totalQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+    const freebiesAmountCalc = (freebies ?? []).reduce((s, f) => s + (Number(f.price) || 0) * (Number(f.qty) || 0), 0);
+
+    const subtotal = Number.isFinite(inSubtotal as number)
+      ? Number(inSubtotal)
+      : items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 0), 0);
+
+    const freebiesAmount = Number.isFinite(inFreebiesAmount as number)
+      ? Number(inFreebiesAmount)
+      : freebiesAmountCalc;
+
+    const linemanMarkup = Number.isFinite(inMarkup as number) ? Number(inMarkup) : 0;
+    const linemanDiscount = Number.isFinite(inDiscount as number) ? Number(inDiscount) : 0;
+
+    // ถ้าฝั่ง client ไม่ส่ง total มา ให้คำนวณซ้ำเพื่อกันพลาด
+    const computedTotal = Number((subtotal - freebiesAmount + linemanMarkup - linemanDiscount).toFixed(2));
+    const finalTotal = Number.isFinite(inTotal) ? Number(inTotal) : computedTotal;
 
     const sheetRef = a1Sheet(tabTitle);
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${sheetRef}!A:I`,
+      range: `${sheetRef}!A:L`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [[
-          useDate, useTime, useBillNo,
-          itemsText, freebiesText,
-          String(totalQty), payment,
-          Number(total).toFixed(2),
-          Number(freebiesValue).toFixed(2),
+          useDate,                 // A: Date
+          useTime,                 // B: Time
+          useBillNo,               // C: BillNo
+          itemsText,               // D: Items
+          freebiesText,            // E: Freebies
+          String(totalQty),        // F: TotalQty
+          payment,                 // G: Payment
+          finalTotal.toFixed(2),   // H: Total
+          freebiesAmount.toFixed(2), // I: FreebiesAmount
+          subtotal.toFixed(2),     // J: Subtotal
+          linemanMarkup.toFixed(2),   // K: LinemanMarkup
+          linemanDiscount.toFixed(2), // L: LinemanDiscount
         ]],
       },
     });
 
     return NextResponse.json({
       ok: true,
-      saved: { date: useDate, time: useTime, billNo: useBillNo, payment, total, tab: tabTitle, freebiesAmount: freebiesValue },
+      saved: {
+        date: useDate, time: useTime, billNo: useBillNo, payment, total: finalTotal,
+        tab: tabTitle, freebiesAmount, subtotal, linemanMarkup, linemanDiscount,
+      },
     });
   } catch (e: any) {
     console.error('POST /api/orders -> Sheets error', e?.message || e);

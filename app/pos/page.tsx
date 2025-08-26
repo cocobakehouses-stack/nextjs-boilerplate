@@ -6,6 +6,9 @@ import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
 import { products as FALLBACK_PRODUCTS } from '../data/products'; // fallback เท่านั้น
 
+// ป้องกัน Next พยายาม prerender หน้าแบบ static
+export const dynamic = 'force-dynamic';
+
 // ---------- Types ----------
 type Product = { id: number; name: string; price: number };
 type CartItem = Product & { quantity: number };
@@ -30,11 +33,16 @@ export default function POSPage() {
   // Location
   const [location, setLocation] = useState<LocationId | null>(null);
   useEffect(() => {
-    const saved = (localStorage.getItem('pos_location') as LocationId | null) || null;
-    if (saved) setLocation(saved);
+    // อ่าน localStorage เฉพาะฝั่ง client
+    try {
+      const saved = (localStorage.getItem('pos_location') as LocationId | null) || null;
+      if (saved) setLocation(saved);
+    } catch {}
   }, []);
   useEffect(() => {
-    if (location) localStorage.setItem('pos_location', location);
+    if (location) {
+      try { localStorage.setItem('pos_location', location); } catch {}
+    }
   }, [location]);
 
   // Step flow
@@ -100,7 +108,6 @@ export default function POSPage() {
       if (p.price > 135) premium.push(p);
       else if (p.price >= 125 && p.price <= 135) levain.push(p);
       else if (p.price <= 109) soft.push(p);
-      // ถ้าต้องการรวมช่วง 110–125 ไป Soft: else soft.push(p);
     }
     return { premium, levain, soft };
   }, [allProducts]);
@@ -110,13 +117,20 @@ export default function POSPage() {
   const [newPrice, setNewPrice] = useState<number | ''>('');
   const [busyAddProduct, setBusyAddProduct] = useState(false);
 
-  // เพิ่ม toggle พับ/ขยาย
+  // ✅ ทำให้ panel “เพิ่มเมนูใหม่” ย่อ/ขยายได้ โดยไม่แตะ localStorage ตอน SSR
   const [addPanelOpen, setAddPanelOpen] = useState<boolean>(() => {
-    const raw = localStorage.getItem('pos_add_panel_open');
-    return raw === null ? true : raw === '1';
+    if (typeof window === 'undefined') return true; // default ตอน SSR
+    try {
+      const raw = window.localStorage.getItem('pos_add_panel_open');
+      return raw === null ? true : raw === '1';
+    } catch {
+      return true;
+    }
   });
   useEffect(() => {
-    localStorage.setItem('pos_add_panel_open', addPanelOpen ? '1' : '0');
+    try {
+      window.localStorage.setItem('pos_add_panel_open', addPanelOpen ? '1' : '0');
+    } catch {}
   }, [addPanelOpen]);
 
   async function addNewProduct() {
@@ -135,7 +149,6 @@ export default function POSPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Add product failed');
-      // reload list
       await reloadProducts();
       setNewName('');
       setNewPrice('');
@@ -150,7 +163,6 @@ export default function POSPage() {
   // ---------- Cart operations ----------
   const addToCart = (p: Product) => {
     setCart((prev) => {
-      // กันกรณี id ชน/ข้อมูลเพี้ยน รวมด้วยทั้ง id และ name
       const idx = prev.findIndex((i) => i.id === p.id && i.name === p.name);
       if (idx >= 0) {
         const next = [...prev];
@@ -192,15 +204,11 @@ export default function POSPage() {
       return [...prev, { name: prod.name, qty: 1, price: prod.price }];
     });
   };
-
   const changeFreebieQty = (name: string, qty: number) => {
     setFreebies((prev) =>
-      qty <= 0
-        ? prev.filter((f) => f.name !== name)
-        : prev.map((f) => (f.name === name ? { ...f, qty } : f))
+      qty <= 0 ? prev.filter((f) => f.name !== name) : prev.map((f) => (f.name === name ? { ...f, qty } : f))
     );
   };
-
   const removeFreebie = (name: string) =>
     setFreebies((prev) => prev.filter((f) => f.name !== name));
 
@@ -244,7 +252,7 @@ export default function POSPage() {
             Location: <b>{location ?? '— เลือกก่อนใช้งาน —'}</b>
           </span>
           <button
-            onClick={() => { localStorage.removeItem('pos_location'); setLocation(null); }}
+            onClick={() => { try { localStorage.removeItem('pos_location'); } catch {} setLocation(null); }}
             className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50"
           >
             เปลี่ยนสถานที่

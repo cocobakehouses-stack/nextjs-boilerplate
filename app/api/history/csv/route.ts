@@ -69,17 +69,32 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'missing date' }, { status: 400 });
     }
 
-    // สร้าง base origin ให้ชัวร์บน Vercel (รองรับ proxy headers)
+    // สร้าง origin จาก header (รองรับ proxy บน Vercel)
     const h = req.headers;
     const proto = h.get('x-forwarded-proto') || url.protocol.replace(':', '');
     const host = h.get('x-forwarded-host') || url.host;
     const base = `${proto}://${host}`;
 
+    // ถ้ามี Protection Bypass token ใส่ไปทั้ง header และ cookie
+    const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+      || process.env.VERCEL_PROTECTION_BYPASS
+      || process.env.PROTECTION_BYPASS_TOKEN
+      || '';
+
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    };
+    if (bypass) {
+      headers['x-vercel-protection-bypass'] = bypass;
+      headers['Cookie'] = `vercel-protection-bypass=${bypass}`;
+    }
+
+    // ดึงข้อมูลจาก /api/history (ในโปรเจกต์เดียวกัน)
     const api = new URL('/api/history', base);
     api.searchParams.set('location', loc);
     api.searchParams.set('date', date);
 
-    const res = await fetch(api.toString(), { cache: 'no-store', headers: { Accept: 'application/json' } });
+    const res = await fetch(api.toString(), { cache: 'no-store', headers });
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       return NextResponse.json(

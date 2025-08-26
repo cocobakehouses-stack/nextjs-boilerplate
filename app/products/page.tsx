@@ -3,14 +3,6 @@
 import { useEffect, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
 
-export default function POSPage() {
-  // ... โค้ดอื่น
-
-  return (
-    <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-[#fffff0]">
-      <HeaderMenu />   {/* ✅ เมนู */}
-      {/* ของเดิมทั้งหมด */}
-      
 type Product = { id: number; name: string; price: number; active?: boolean };
 
 export default function ProductsPage() {
@@ -26,7 +18,7 @@ export default function ProductsPage() {
   }
 
   async function toggleActive(p: Product) {
-    const newActive = !p.active;
+    const newActive = !(p.active ?? true);
     const res = await fetch(`/api/products/${p.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
@@ -67,12 +59,12 @@ export default function ProductsPage() {
                     <button
                       onClick={() => toggleActive(p)}
                       className={
-                        p.active
+                        (p.active ?? true)
                           ? 'px-2 py-1 rounded bg-green-600 text-white'
                           : 'px-2 py-1 rounded bg-gray-400 text-white'
                       }
                     >
-                      {p.active ? 'Active' : 'Inactive'}
+                      {(p.active ?? true) ? 'Active' : 'Inactive'}
                     </button>
                   </td>
                 </tr>

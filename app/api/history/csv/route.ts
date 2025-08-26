@@ -1,103 +1,87 @@
 // app/api/history/csv/route.ts
 import { NextResponse } from 'next/server';
-import { google } from 'googleapis';
-import {
-  ALLOWED_TABS,
-  fetchHistory,
-  toBangkokDateString,
-  getAuth,
-  ensureSheetExists,
-  type HistoryRow,
-} from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const LOC_TAB = 'Locations'; // A: ID, B: Label
+type Row = {
+  location?: string;
+  time?: string;
+  billNo?: string;
+  items?: string;
+  totalQty?: number;
+  payment?: string;
+  total?: number;
+  freebies?: string;
+};
 
-type LocalHistoryRow = HistoryRow & { location?: string };
-
-async function listLocationIds(spreadsheetId: string) {
-  const auth = getAuth();
-  const sheets = google.sheets({ version: 'v4', auth });
-  await ensureSheetExists(sheets, spreadsheetId, LOC_TAB);
-  const r = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${LOC_TAB}!A:A` });
-  const rows = (r.data.values || []).slice(1);
-  return rows
-    .map(x => (x?.[0] || '').toString().trim().toUpperCase())
-    .filter(Boolean);
+function csvEscape(val: unknown) {
+  const s = String(val ?? '');
+  // แทนที่ " ด้วย "" แล้วห่อด้วย "
+  return `"${s.replace(/"/g, '""')}"`;
 }
 
 export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
-    const location = (searchParams.get('location') || 'ORDERS').toUpperCase();
-    const date = searchParams.get('date') || toBangkokDateString();
+  const url = new URL(req.url);
+  const location = (url.searchParams.get('location') || '').toUpperCase();
+  const date = url.searchParams.get('date') || '';
 
-    if (location !== 'ALL' && !ALLOWED_TABS.has(location)) {
-      return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
-    }
-
-    const header =
-      location === 'ALL'
-        ? ['Location','Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount']
-        : ['Date','Time','BillNo','Items','Freebies','TotalQty','Payment','Total','FreebiesAmount'];
-
-    let lines: string[] = [];
-
-    if (location === 'ALL') {
-      const ids = await listLocationIds(spreadsheetId);
-      const merged: LocalHistoryRow[] = [];
-      for (const id of ids) {
-        const { rows } = await fetchHistory(spreadsheetId, id, date);
-        const list = (rows as HistoryRow[]).map<LocalHistoryRow>(r => ({ ...r, location: id }));
-        merged.push(...list);
-      }
-      lines = merged.map((r) =>
-        [
-          r.location || '',
-          r.date || '',
-          r.time || '',
-          r.billNo || '',
-          JSON.stringify(r.items || ''),
-          JSON.stringify(r.freebies || ''),
-          String(r.totalQty ?? 0),
-          r.payment || '',
-          (r.total ?? 0).toFixed(2),
-          (r.freebiesAmount ?? 0).toFixed(2),
-        ].join(',')
-      );
-    } else {
-      const { rows } = await fetchHistory(spreadsheetId, location, date);
-      const list = rows as HistoryRow[];
-      lines = list.map((r) =>
-        [
-          r.date || '',
-          r.time || '',
-          r.billNo || '',
-          JSON.stringify(r.items || ''),
-          JSON.stringify(r.freebies || ''),
-          String(r.totalQty ?? 0),
-          r.payment || '',
-          (r.total ?? 0).toFixed(2),
-          (r.freebiesAmount ?? 0).toFixed(2),
-        ].join(',')
-      );
-    }
-
-    const csv = [header.join(','), ...lines].join('\n');
-    const fileName = location === 'ALL' ? `EOD_ALL_${date}.csv` : `EOD_${location}_${date}.csv`;
-
-    return new NextResponse(csv, {
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
-        'Cache-Control': 'no-store',
-      },
-    });
-  } catch (e: any) {
-    console.error('GET /api/history/csv error', e?.message || e);
-    return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
+  if (!date) {
+    return NextResponse.json({ error: 'missing date' }, { status: 400 });
   }
+
+  // ดึง JSON จาก /api/history (ให้ /api/history เป็นตัวรวมข้อมูล ALL)
+  const api = `${url.origin}/api/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`;
+  const res = await fetch(api, { cache: 'no-store' });
+  if (!res.ok) {
+    return NextResponse.json({ error: 'failed to load history' }, { status: 500 });
+  }
+
+  const data = await res.json();
+  const rows: Row[] = data?.rows || [];
+
+  const includeLocCol = rows.some(r => r.location) || location === 'ALL';
+  const header = includeLocCol
+    ? ['Location','Time','Bill','Items','Qty','Payment','Total','Freebies']
+    : ['Time','Bill','Items','Qty','Payment','Total','Freebies'];
+
+  const lines: string[] = [];
+  lines.push(header.join(','));
+
+  for (const r of rows) {
+    const items = (r.items ?? '').replace(/\r?\n/g, ' ');
+    const freebies = (r.freebies ?? '').replace(/\r?\n/g, ' ');
+    const cols = includeLocCol
+      ? [
+          csvEscape(r.location ?? ''),
+          csvEscape(r.time ?? ''),
+          csvEscape(r.billNo ?? ''),
+          csvEscape(items),
+          csvEscape(r.totalQty ?? 0),
+          csvEscape(r.payment ?? ''),
+          csvEscape((Number(r.total ?? 0)).toFixed(2)),
+          csvEscape(freebies),
+        ]
+      : [
+          csvEscape(r.time ?? ''),
+          csvEscape(r.billNo ?? ''),
+          csvEscape(items),
+          csvEscape(r.totalQty ?? 0),
+          csvEscape(r.payment ?? ''),
+          csvEscape((Number(r.total ?? 0)).toFixed(2)),
+          csvEscape(freebies),
+        ];
+    lines.push(cols.join(','));
+  }
+
+  const csv = lines.join('\r\n');
+
+  return new NextResponse(csv, {
+    status: 200,
+    headers: {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="history_${location || 'ALL'}_${date}.csv"`,
+      'cache-control': 'no-store',
+    },
+  });
 }

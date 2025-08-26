@@ -39,34 +39,33 @@ function parseNum(x: any) {
 /** ---------- GET: list products ---------- */
 export async function GET(req: Request) {
   try {
-    const url = new URL(req.url);
-    const includeAll = url.searchParams.get('all') === '1';
-
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
     await ensureProductsSheetExists(sheets, spreadsheetId);
 
+    const url = new URL(req.url);
+    const all = url.searchParams.get('all') === '1';
+
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `${PRODUCTS_TAB}!A:D`,
     });
 
-    let products: Product[] = ((res.data.values || []).slice(1) as string[][])
-      .map((r) => {
-        const id = parseNum(r?.[0]);
-        const name = (r?.[1] || '').toString().trim();
-        const price = parseNum(r?.[2]);
-        const activeStr = (r?.[3] || '').toString().trim().toLowerCase();
-        const active = activeStr === '' ? true : ['true', '1', 'yes', 'y'].includes(activeStr);
-        if (!Number.isFinite(id) || !name || !Number.isFinite(price)) return null;
-        return { id, name, price, active };
-      })
-      .filter(Boolean) as Product[];
+    const rows: string[][] = (res.data.values || []).slice(1);
+    const parsed: (Product | null)[] = rows.map((r) => {
+      const id = parseNum(r?.[0]);
+      const name = (r?.[1] || '').toString().trim();
+      const price = parseNum(r?.[2]);
+      const activeStr = (r?.[3] || '').toString().trim().toLowerCase();
+      const active = activeStr === '' ? true : ['true', '1', 'yes', 'y'].includes(activeStr);
+      if (!Number.isFinite(id) || !name || !Number.isFinite(price)) return null;
+      return { id, name, price, active };
+    });
 
-    // POS: เฉพาะ active (default). หน้าแอดมิน: ?all=1
-    if (!includeAll) products = products.filter((p) => p.active !== false);
+    let products = parsed.filter(Boolean) as Product[];
+    if (!all) products = products.filter((p) => p.active !== false);
 
     products.sort((a, b) => b.price - a.price);
 
@@ -98,17 +97,16 @@ export async function POST(req: Request) {
 
     await ensureProductsSheetExists(sheets, spreadsheetId);
 
-    // หา next id = max(id) + 1
+    // read to compute next ID
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `${PRODUCTS_TAB}!A:A`,
     });
-    const ids = ((res.data.values || []).slice(1) as any[])
-      .map((r) => parseNum(r?.[0]))
-      .filter((n) => Number.isFinite(n)) as number[];
-    const nextId = (ids.length ? Math.max(...ids) : 0) + 1;
+    const rows: string[][] = (res.data.values || []).slice(1);
+    const ids = rows.map((r) => parseNum(r?.[0])).filter((n) => Number.isFinite(n)) as number[];
+    const nextId = ids.length > 0 ? Math.max(...ids) + 1 : 1;
 
-    // append (Active = TRUE)
+    // append (Active default TRUE)
     await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: `${PRODUCTS_TAB}!A:D`,
@@ -116,7 +114,7 @@ export async function POST(req: Request) {
       requestBody: { values: [[nextId, normName, normPrice, true]] },
     });
 
-    return NextResponse.json({ ok: true, product: { id: nextId, name: normName, price: normPrice } });
+    return NextResponse.json({ ok: true, product: { id: nextId, name: normName, price: normPrice, active: true } });
   } catch (e: any) {
     console.error('POST /api/products error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
@@ -126,52 +124,49 @@ export async function POST(req: Request) {
 /** ---------- PATCH: toggle active ---------- */
 export async function PATCH(req: Request) {
   try {
-    const { id, active } = await req.json();
-    const numId = Number(id);
-    if (!Number.isFinite(numId) || typeof active !== 'boolean') {
-      return NextResponse.json({ error: 'Invalid id/active' }, { status: 400 });
+    const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
+    if (!spreadsheetId) {
+      return NextResponse.json({ error: 'Missing GOOGLE_SHEETS_ID' }, { status: 500 });
     }
 
-    const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
+    const { id, active } = await req.json();
+    const numId = parseNum(id);
+    const boolActive = !!active;
+
+    if (!Number.isFinite(numId)) {
+      return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+    }
+
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
     await ensureProductsSheetExists(sheets, spreadsheetId);
 
-    // อ่านทั้งตารางเพื่อหาแถวของ id
+    // read to find row index
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${PRODUCTS_TAB}!A:D`,
+      range: `${PRODUCTS_TAB}!A:A`,
     });
-    const all = res.data.values || [];
-    const rows = all.slice(1); // ข้าม header
-
-    let rowIndex = -1; // index ใน rows (เริ่ม 0)
-    for (let i = 0; i < rows.length; i++) {
-      const rid = parseNum(rows[i]?.[0]);
-      if (rid === numId) { rowIndex = i; break; }
+    const rows: string[][] = (res.data.values || []);
+    // include header in index math; find in slice(1) but add 2 to get 1-based row number
+    const bodyRows = rows.slice(1);
+    const idx = bodyRows.findIndex((r) => parseNum(r?.[0]) === numId);
+    if (idx === -1) {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
-    if (rowIndex < 0) {
-      return NextResponse.json({ error: 'ID not found' }, { status: 404 });
-    }
+    const rowNumber = idx + 2; // header is row 1
 
-    // คอลัมน์ D = Active → แถวจริง = rowIndex + 2 (เพราะ row 1 คือ header)
-    const targetRange = `${PRODUCTS_TAB}!D${rowIndex + 2}`;
+    // update column D for that row
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: targetRange,
+      range: `${PRODUCTS_TAB}!D${rowNumber}:D${rowNumber}`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[active ? 'TRUE' : 'FALSE']] },
+      requestBody: { values: [[boolActive ? 'TRUE' : 'FALSE']] },
     });
 
-    return NextResponse.json({ ok: true, id: numId, active });
+    return NextResponse.json({ ok: true, id: numId, active: boolActive });
   } catch (e: any) {
     console.error('PATCH /api/products error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
   }
-}
-
-/** ---------- OPTIONS: preflight ---------- */
-export async function OPTIONS() {
-  return NextResponse.json({ ok: true });
 }

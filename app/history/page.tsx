@@ -179,12 +179,13 @@ export default function HistoryPage() {
             ดาวน์โหลด CSV
           </a>
           <a
-            className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50"
-            href={pdfHref}
-            onClick={(e) => { if (pdfHref === '#') e.preventDefault(); }}
-          >
-            ดาวน์โหลด PDF
-          </a>
+  className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50"
+  href={pdfHref}
+  // ให้ไฟล์ชื่อชัด ๆ เป็น .pdf เสมอ (กันเบราว์เซอร์เดางง ๆ)
+  download={`history_${location}_${date}.pdf`}
+>
+  ดาวน์โหลด PDF
+</a>
         </div>
       </div>
 

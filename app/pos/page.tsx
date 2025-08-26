@@ -188,6 +188,33 @@ export default function POSPage() {
     const raw = netTotal + linemanMarkup - discountValue;
     return Math.max(0, Number(raw.toFixed(2)));
   }, [netTotal, linemanMarkup, discountValue]);
+  
+  // ---------- Freebies ops ----------
+const addFreebie = () => {
+  const prod = allProducts.find((p) => p.id === freebiePick);
+  if (!prod) return;
+  setFreebies((prev) => {
+    const idx = prev.findIndex((f) => f.name === prod.name);
+    if (idx >= 0) {
+      const next = [...prev];
+      next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
+      return next;
+    }
+    return [...prev, { name: prod.name, qty: 1, price: prod.price }];
+  });
+};
+
+const changeFreebieQty = (name: string, qty: number) => {
+  setFreebies((prev) =>
+    qty <= 0
+      ? prev.filter((f) => f.name !== name)
+      : prev.map((f) => (f.name === name ? { ...f, qty } : f))
+  );
+};
+
+const removeFreebie = (name: string) => {
+  setFreebies((prev) => prev.filter((f) => f.name !== name));
+};
 
   // ---------- Navigation ----------
   const goSummary = () => {

@@ -1,4 +1,3 @@
-// app/api/history/pdf/route.ts
 import { NextResponse } from 'next/server';
 import PDFDocument from 'pdfkit';
 
@@ -9,12 +8,9 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const loc = (url.searchParams.get('location') || 'ALL').toUpperCase();
   const date = url.searchParams.get('date') || '';
+  if (!date) return NextResponse.json({ error: 'missing date' }, { status: 400 });
 
-  if (!date) {
-    return NextResponse.json({ error: 'missing date' }, { status: 400 });
-  }
-
-  // โหลด data จาก /api/history ตามเดิม
+  // โหลดข้อมูลจาก /api/history
   const api = `${url.origin}/api/history?location=${encodeURIComponent(loc)}&date=${encodeURIComponent(date)}`;
   const res = await fetch(api, { cache: 'no-store' });
   if (!res.ok) return NextResponse.json({ error: 'failed to load history' }, { status: 500 });
@@ -25,7 +21,7 @@ export async function GET(req: Request) {
   // สร้าง PDF
   const doc = new PDFDocument({ size: 'A4', margin: 36 });
 
-  // เก็บ buffer (สำคัญ: ให้ได้ Node Buffer ก่อน)
+  // สะสม Buffer
   const chunks: Buffer[] = [];
   const done = new Promise<Buffer>((resolve, reject) => {
     doc.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
@@ -33,7 +29,7 @@ export async function GET(req: Request) {
     doc.on('error', reject);
   });
 
-  // ---- เขียนเนื้อหา ----
+  // ---- เนื้อหา ----
   doc.fontSize(16).text(`End of Day – ${date}`);
   doc.moveDown(0.3);
   doc.fontSize(12).text(`Location: ${loc}`);
@@ -73,20 +69,18 @@ export async function GET(req: Request) {
 
   doc.end();
 
-  // รอให้ได้ Buffer เสร็จ
-  const buf = await done;
+  const buf = await done;                 // Node Buffer
+  const bytes = Uint8Array.from(buf);     // แปลงเป็น Uint8Array (ปลอดภัยเรื่อง type)
 
-  // แปลงเป็น Uint8Array แบบไม่ดึง .buffer (กัน SharedArrayBuffer)
-  const bytes = Uint8Array.from(buf);
-
-  // ตั้งชื่อไฟล์ (inline = เปิดในเบราว์เซอร์, ถ้าอยาก force ดาวน์โหลดใช้ attachment)
   const filename = `history_${loc}_${date}.pdf`;
 
   return new NextResponse(bytes, {
     status: 200,
     headers: {
+      // 👇 สำคัญมาก
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="${filename}"`,
+      // ใช้ attachment เพื่อบังคับดาวน์โหลดและกำหนดชื่อไฟล์ให้ถูก .pdf
+      'Content-Disposition': `attachment; filename="${filename}"`,
       'Cache-Control': 'no-store',
     },
   });

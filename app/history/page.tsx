@@ -1,17 +1,9 @@
 // app/history/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
 
-export default function POSPage() {
-  // ... โค้ดอื่น
-
-  return (
-    <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-[#fffff0]">
-      <HeaderMenu />   {/* ✅ เมนู */}
-      {/* ของเดิมทั้งหมด */}
-      
 type LocationRow = { id: string; label: string };
 type HistoryRow = {
   date: string;
@@ -22,9 +14,20 @@ type HistoryRow = {
   totalQty: number;
   payment: string;
   total: number;
-  freebiesAmount?: number;
+  freebiesAmount: number;
   location?: string; // เพิ่มไว้รองรับโหมด ALL
 };
+
+export default function HistoryPage() {
+  // …ของเดิมหมวย (ตัวเลือก location/date, โหลดข้อมูล ฯลฯ)
+
+  return (
+    <main className="min-h-screen bg-[#fffff0] p-4 sm:p-6 lg:p-8">
+      <HeaderMenu />
+      {/* ของเดิมทั้งหมดของหน้า History */}
+    </main>
+  );
+}
 
 const TZ = 'Asia/Bangkok';
 function toBangkokDateString(d = new Date()) {

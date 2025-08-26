@@ -300,7 +300,7 @@ export default function POSPage() {
               {/* Add new product panel (collapsible) */}
               <div className="rounded-xl border bg-white mb-4 overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3">
-                  <div className="font-semibold">เพิ่มเมนูใหม่ (บันทึกลงแท็บ Products)</div>
+                  <div className="font-semibold">เพิ่มเมนูใหม่</div>
                   <button
                     onClick={() => setAddPanelOpen((s) => !s)}
                     className="px-3 py-1 rounded-lg border bg-white text-sm hover:bg-gray-50"

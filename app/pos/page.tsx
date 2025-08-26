@@ -12,18 +12,6 @@ import { products as FALLBACK_PRODUCTS } from '../data/products';
 
 export const dynamic = 'force-dynamic';
 
-export default function POSPage() {
-  // ... state & functions เดิมทั้งหมดของหมวย
-
-  return (
-    <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-[#fffff0]">
-      <HeaderMenu />
-      {/* จากนี้เป็น UI เดิมของหมวยทั้งหมด */}
-      {/* ... */}
-    </main>
-  );
-}
-
 // ---------- Types ----------
 type Product = { id: number; name: string; price: number };
 type CartItem = Product & { quantity: number };

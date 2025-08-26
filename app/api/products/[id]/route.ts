@@ -1,75 +1,54 @@
 // app/api/products/[id]/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getAuth } from '../../../lib/sheets';
+// 👇 ปรับ path ให้ตรงโปรเจ็กต์ของหมวย (ถ้า lib/sheets อยู่ที่ app/api/lib/sheets จริง ให้ใช้แบบนี้)
+import { getAuth } from 'app/lib/sheets.ts/lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const PRODUCTS_TAB = 'Products';
 
-async function ensureProductsSheetExists(sheets: any, spreadsheetId: string) {
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets.properties.title',
-  });
-  const exists = (meta.data.sheets ?? []).some(
-    (s: any) => s.properties?.title === PRODUCTS_TAB
-  );
-  if (!exists) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: [{ addSheet: { properties: { title: PRODUCTS_TAB } } }] },
-    });
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${PRODUCTS_TAB}!A1:D1`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [['ID', 'Name', 'Price', 'Active']] },
-    });
-  }
-}
-
 function parseNum(x: any) {
   const n = Number(String(x ?? '').replace(/,/g, '').trim());
   return Number.isFinite(n) ? n : NaN;
 }
 
-export async function PATCH(req: Request, ctx: { params: { id: string } }) {
+export async function PATCH(req: Request, context: any) {
   try {
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
     if (!spreadsheetId) {
       return NextResponse.json({ error: 'Missing GOOGLE_SHEETS_ID' }, { status: 500 });
     }
 
-    const idNum = parseNum(ctx.params.id);
+    // ✅ ดึง id แบบปลอดภัย ไม่ผูก type context ให้ Next โวย
+    const { id } = (context?.params ?? {}) as { id?: string };
+    const idNum = parseNum(id);
     if (!Number.isFinite(idNum)) {
       return NextResponse.json({ error: 'Invalid product id' }, { status: 400 });
     }
 
     const body = await req.json().catch(() => ({}));
-    const active = body?.active;
-    if (typeof active !== 'boolean') {
+    if (typeof body?.active !== 'boolean') {
       return NextResponse.json({ error: 'active must be boolean' }, { status: 400 });
     }
+    const active: boolean = body.active;
 
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    await ensureProductsSheetExists(sheets, spreadsheetId);
-
-    // หา row ของ product id
+    // อ่านทั้งชีต
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `${PRODUCTS_TAB}!A:D`,
     });
-    const values: string[][] = res.data.values || [];
-    // header อยู่แถว 1 → data เริ่ม index 1
-    let rowIndex = -1;
+    const values: (string | number)[][] = res.data.values ?? [];
+
+    // หา row ที่ ID ตรง (data เริ่มแถวที่ 2 เพราะแถว 1 เป็น header)
+    let rowIndex = -1; // index ในอาร์เรย์ values (0 คือ header, 1 คือแถวที่ 2 จริงในชีต)
     for (let i = 1; i < values.length; i++) {
-      const v = parseNum(values[i]?.[0]);
-      if (v === idNum) {
-        rowIndex = i; // zero-based index ใน values
+      if (parseNum(values[i]?.[0]) === idNum) {
+        rowIndex = i;
         break;
       }
     }
@@ -77,9 +56,9 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    // คอลัมน์ D = Active → แถวจริงในชีต = rowIndex + 1 (เพราะ header 1 แถว + index เริ่ม 0)
-    const sheetRow = rowIndex + 1; // header=1 → data row เริ่ม 2 → index1=2, index2=3, ...
-    const range = `${PRODUCTS_TAB}!D${sheetRow + 1}:D${sheetRow + 1}`;
+    // ✅ แก้ off-by-one: แถวจริงในชีต = rowIndex + 1 (1-based)
+    const rowNumber = rowIndex + 1;
+    const range = `${PRODUCTS_TAB}!D${rowNumber}:D${rowNumber}`;
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,

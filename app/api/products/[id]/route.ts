@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 // 👇 ปรับ path ให้ตรงโปรเจ็กต์ของหมวย (ถ้า lib/sheets อยู่ที่ app/api/lib/sheets จริง ให้ใช้แบบนี้)
-import { getAuth } from 'app/lib/sheets';
+import { getAuth } from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

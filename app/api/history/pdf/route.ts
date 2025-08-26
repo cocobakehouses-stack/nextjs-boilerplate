@@ -22,7 +22,7 @@ type Row = {
   total?: number;
 };
 
-// ใช้ InstanceType<typeof PDFDocument> แทนการอ้าง PDFDocument เป็น type ตรง ๆ
+// --- helpers ---
 function pdfFromBuffers(make: (doc: InstanceType<typeof PDFDocument>) => void) {
   const doc = new PDFDocument({ size: 'A4', margin: 36 });
   const chunks: Buffer[] = [];
@@ -34,6 +34,26 @@ function pdfFromBuffers(make: (doc: InstanceType<typeof PDFDocument>) => void) {
   make(doc);
   doc.end();
   return done;
+}
+
+// บังคับให้เป็น ArrayBuffer (เลี่ยง SharedArrayBuffer)
+function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
+  return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+}
+
+function sendPdf(bytes: Uint8Array, filename: string) {
+  const ab = toArrayBuffer(bytes);
+  const blob = new Blob([ab], { type: 'application/pdf' });
+  return new NextResponse(blob, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      // inline = เปิดในเบราว์เซอร์, เปลี่ยนเป็น attachment ถ้าอยากบังคับดาวน์โหลด
+      'Content-Disposition': `inline; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+      'Content-Length': String(bytes.byteLength),
+    },
+  });
 }
 
 function renderErrorPage(
@@ -51,36 +71,28 @@ function renderErrorPage(
   }
 }
 
+// --- route ---
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const loc = (url.searchParams.get('location') || 'ALL').toUpperCase();
   const date = url.searchParams.get('date') || '';
   const filename = `history_${loc}_${date || 'unknown'}.pdf`;
 
-  // ไม่มี date -> ส่ง PDF แจ้ง error
   if (!date) {
     const bytes = await pdfFromBuffers((doc) => {
       renderErrorPage(doc, 'Error: missing date', { location: loc });
     });
-    const blob = new Blob([bytes], { type: 'application/pdf' });
-    return new NextResponse(blob, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-store',
-        'Content-Length': String(bytes.byteLength),
-      },
-    });
+    return sendPdf(bytes, filename);
   }
 
-  // โหลดข้อมูลจาก /api/history
+  // ดึง JSON จาก /api/history
   const api = `${url.origin}/api/history?location=${encodeURIComponent(
     loc
   )}&date=${encodeURIComponent(date)}`;
 
   let rows: Row[] = [];
   let totals: Totals | null = null;
+
   try {
     const res = await fetch(api, { cache: 'no-store' });
     if (!res.ok) {
@@ -91,16 +103,7 @@ export async function GET(req: Request) {
           status: res.status,
         });
       });
-      const blob = new Blob([bytes], { type: 'application/pdf' });
-      return new NextResponse(blob, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="${filename}"`,
-          'Cache-Control': 'no-store',
-          'Content-Length': String(bytes.byteLength),
-        },
-      });
+      return sendPdf(bytes, filename);
     }
     const data = await res.json();
     rows = data?.rows || [];
@@ -113,19 +116,10 @@ export async function GET(req: Request) {
         message: e?.message || String(e),
       });
     });
-    const blob = new Blob([bytes], { type: 'application/pdf' });
-    return new NextResponse(blob, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-store',
-        'Content-Length': String(bytes.byteLength),
-      },
-    });
+    return sendPdf(bytes, filename);
   }
 
-  // กรณีปกติ: สร้าง PDF รายงาน
+  // สร้างรายงานปกติ
   const bytes = await pdfFromBuffers((doc) => {
     doc.fontSize(16).text(`End of Day – ${date}`);
     doc.moveDown(0.3);
@@ -183,15 +177,5 @@ export async function GET(req: Request) {
     }
   });
 
-  const blob = new Blob([bytes], { type: 'application/pdf' });
-
-  return new NextResponse(blob, {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-      'Cache-Control': 'no-store',
-      'Content-Length': String(bytes.byteLength),
-    },
-  });
+  return sendPdf(bytes, filename);
 }

@@ -5,62 +5,42 @@ import PDFDocument from 'pdfkit';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type Totals = {
-  count: number;
-  totalQty: number;
-  totalAmount: number;
-  freebiesAmount: number;
-  byPayment?: Record<string, number>;
-};
-
-type Row = {
-  location?: string;
-  time?: string;
-  billNo?: string;
-  totalQty?: number;
-  payment?: string;
-  total?: number;
-};
-
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const location = (url.searchParams.get('location') || 'ALL').toUpperCase();
+  const loc = (url.searchParams.get('location') || 'ALL').toUpperCase();
   const date = url.searchParams.get('date') || '';
 
   if (!date) {
     return NextResponse.json({ error: 'missing date' }, { status: 400 });
   }
 
-  // ดึง JSON จาก /api/history
-  const api = `${url.origin}/api/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`;
+  // โหลด data จาก /api/history ตามเดิม
+  const api = `${url.origin}/api/history?location=${encodeURIComponent(loc)}&date=${encodeURIComponent(date)}`;
   const res = await fetch(api, { cache: 'no-store' });
-  if (!res.ok) {
-    return NextResponse.json({ error: 'failed to load history' }, { status: 500 });
-  }
-
+  if (!res.ok) return NextResponse.json({ error: 'failed to load history' }, { status: 500 });
   const data = await res.json();
-  const rows: Row[] = data?.rows || [];
-  const totals: Totals | null = data?.totals || null;
+  const rows = data?.rows || [];
+  const totals = data?.totals || null;
 
-  // สร้างเอกสาร PDF
+  // สร้าง PDF
   const doc = new PDFDocument({ size: 'A4', margin: 36 });
 
-  // เก็บ buffer
+  // เก็บ buffer (สำคัญ: ให้ได้ Node Buffer ก่อน)
   const chunks: Buffer[] = [];
-  const bufferPromise = new Promise<Buffer>((resolve, reject) => {
+  const done = new Promise<Buffer>((resolve, reject) => {
     doc.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
   });
 
-  // Header
+  // ---- เขียนเนื้อหา ----
   doc.fontSize(16).text(`End of Day – ${date}`);
   doc.moveDown(0.3);
-  doc.fontSize(12).text(`Location: ${location || '-'}`);
+  doc.fontSize(12).text(`Location: ${loc}`);
   doc.moveDown();
 
-  const includeLocCol = rows.some(r => r.location) || location === 'ALL';
-  const header = includeLocCol
+  const includeLoc = rows.some((r: any) => r.location) || loc === 'ALL';
+  const header = includeLoc
     ? ['Location', 'Time', 'Bill', 'Qty', 'Payment', 'Total']
     : ['Time', 'Bill', 'Qty', 'Payment', 'Total'];
 
@@ -69,25 +49,12 @@ export async function GET(req: Request) {
   doc.font('Helvetica').text(''.padEnd(120, '—'));
   doc.moveDown(0.3);
 
-  rows.forEach((r) => {
-    const cols = includeLocCol
-      ? [
-          r.location ?? '',
-          r.time ?? '',
-          r.billNo ?? '',
-          String(r.totalQty ?? 0),
-          r.payment ?? '',
-          (Number(r.total ?? 0)).toFixed(2),
-        ]
-      : [
-          r.time ?? '',
-          r.billNo ?? '',
-          String(r.totalQty ?? 0),
-          r.payment ?? '',
-          (Number(r.total ?? 0)).toFixed(2),
-        ];
+  for (const r of rows) {
+    const cols = includeLoc
+      ? [r.location ?? '', r.time ?? '', r.billNo ?? '', String(r.totalQty ?? 0), r.payment ?? '', Number(r.total ?? 0).toFixed(2)]
+      : [r.time ?? '', r.billNo ?? '', String(r.totalQty ?? 0), r.payment ?? '', Number(r.total ?? 0).toFixed(2)];
     doc.text(cols.join('   |   '));
-  });
+  }
 
   if (totals) {
     doc.moveDown();
@@ -105,18 +72,22 @@ export async function GET(req: Request) {
   }
 
   doc.end();
-  const pdfBuffer = await bufferPromise;
 
-  // ✅ ใช้ Uint8Array เพื่อให้ type เข้ากับ BodyInit แน่นอน (ArrayBufferView)
-  const body = new Uint8Array(pdfBuffer);
+  // รอให้ได้ Buffer เสร็จ
+  const buf = await done;
 
-  return new NextResponse(body, {
+  // แปลงเป็น Uint8Array แบบไม่ดึง .buffer (กัน SharedArrayBuffer)
+  const bytes = Uint8Array.from(buf);
+
+  // ตั้งชื่อไฟล์ (inline = เปิดในเบราว์เซอร์, ถ้าอยาก force ดาวน์โหลดใช้ attachment)
+  const filename = `history_${loc}_${date}.pdf`;
+
+  return new NextResponse(bytes, {
     status: 200,
     headers: {
-      'content-type': 'application/pdf',
-      'content-length': String(body.byteLength),
-      'cache-control': 'no-store',
-      // 'content-disposition': `inline; filename="history_${location}_${date}.pdf"`,
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${filename}"`,
+      'Cache-Control': 'no-store',
     },
   });
 }

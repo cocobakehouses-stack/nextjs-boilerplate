@@ -24,14 +24,14 @@ type Row = {
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-const location = (url.searchParams.get('location') || 'ALL').toUpperCase();
-const date = url.searchParams.get('date') || '';
+  const location = (url.searchParams.get('location') || 'ALL').toUpperCase();
+  const date = url.searchParams.get('date') || '';
 
   if (!date) {
     return NextResponse.json({ error: 'missing date' }, { status: 400 });
   }
 
-  // ดึง JSON จาก /api/history
+  // โหลด JSON จาก /api/history
   const api = `${url.origin}/api/history?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`;
   const res = await fetch(api, { cache: 'no-store' });
   if (!res.ok) {
@@ -42,7 +42,7 @@ const date = url.searchParams.get('date') || '';
   const rows: Row[] = data?.rows || [];
   const totals: Totals | null = data?.totals || null;
 
-  // สร้างเอกสาร PDF
+  // สร้าง PDF
   const doc = new PDFDocument({ size: 'A4', margin: 36 });
 
   // เก็บ buffer
@@ -107,19 +107,23 @@ const date = url.searchParams.get('date') || '';
   doc.end();
   const pdfBuffer = await bufferPromise;
 
-const ab = pdfBuffer.buffer.slice(
-  pdfBuffer.byteOffset,
-  pdfBuffer.byteOffset + pdfBuffer.byteLength
-);
+  // ✅ ส่งเป็น Blob (ปลอดภัยเรื่อง type: ไม่ติด SharedArrayBuffer)
+  const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
 
-return new NextResponse(ab, {
-  status: 200,
-  headers: {
-    'content-type': 'application/pdf',
-    'content-length': String(pdfBuffer.byteLength),
-    'cache-control': 'no-store',
-    // ถ้าอยากตั้งชื่อไฟล์ตอนเปิด/ดาวน์โหลด:
-    // 'content-disposition': 'inline; filename="history_<loc>_<date>.pdf"',
-  },
-});
+  return new NextResponse(blob, {
+    status: 200,
+    headers: {
+      'content-type': 'application/pdf',
+      'cache-control': 'no-store',
+      // ตั้งชื่อไฟล์เวลาเปิด/ดาวน์โหลด
+      // 'content-disposition': `inline; filename="history_${location}_${date}.pdf"`,
+    },
+  });
+
+  // หรือถ้าชอบ Uint8Array:
+  // const body = new Uint8Array(pdfBuffer);
+  // return new NextResponse(body, {
+  //   status: 200,
+  //   headers: { 'content-type': 'application/pdf', 'cache-control': 'no-store' },
+  // });
 }

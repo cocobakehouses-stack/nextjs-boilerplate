@@ -119,13 +119,14 @@ export default function ReportsPage() {
         if (allLocations.length === 0) {
           await loadLocations();
         }
-        const locs = allLocations.length
-          ? allLocations
-          : await (async () => {
-              const res = await fetch('/api/locations', { cache: 'no-store' });
-              const data = await res.json().catch(() => ({}));
-              return (data?.locations || []).filter((l: LocationRow) => l.id !== 'ORDERS');
-            })();
+      const locs: LocationRow[] = allLocations.length
+  ? allLocations
+  : await (async (): Promise<LocationRow[]> => {
+      const res = await fetch('/api/locations', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      const list: LocationRow[] = data?.locations || [];
+      return list.filter((l: LocationRow) => l.id !== 'ORDERS');
+    })();
         const results = await Promise.all(locs.map(l => fetchReport(l.id)));
         setMultiReports(results);
       }

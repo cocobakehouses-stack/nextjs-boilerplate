@@ -24,8 +24,8 @@ type Row = {
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const location = (url.searchParams.get('location') || '').toUpperCase();
-  const date = url.searchParams.get('date') || '';
+const location = (url.searchParams.get('location') || 'ALL').toUpperCase();
+const date = url.searchParams.get('date') || '';
 
   if (!date) {
     return NextResponse.json({ error: 'missing date' }, { status: 400 });
@@ -107,12 +107,19 @@ export async function GET(req: Request) {
   doc.end();
   const pdfBuffer = await bufferPromise;
 
-  return new NextResponse(pdfBuffer, {
-    status: 200,
-    headers: {
-      'content-type': 'application/pdf',
-      'content-disposition': `inline; filename="history_${location || 'ALL'}_${date}.pdf"`,
-      'cache-control': 'no-store',
-    },
-  });
+const ab = pdfBuffer.buffer.slice(
+  pdfBuffer.byteOffset,
+  pdfBuffer.byteOffset + pdfBuffer.byteLength
+);
+
+return new NextResponse(ab, {
+  status: 200,
+  headers: {
+    'content-type': 'application/pdf',
+    'content-length': String(pdfBuffer.byteLength),
+    'cache-control': 'no-store',
+    // ถ้าอยากตั้งชื่อไฟล์ตอนเปิด/ดาวน์โหลด:
+    // 'content-disposition': 'inline; filename="history_<loc>_<date>.pdf"',
+  },
+});
 }

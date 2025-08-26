@@ -36,11 +36,12 @@ function pdfFromBuffers(make: (doc: InstanceType<typeof PDFDocument>) => void) {
   return done;
 }
 
-// บังคับให้เป็น ArrayBuffer (เลี่ยง SharedArrayBuffer)
+// บังคับให้ได้ ArrayBuffer จริง ๆ (ไม่ใช่ SharedArrayBuffer)
 function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
-  return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+  const ab = new ArrayBuffer(u8.byteLength);
+  new Uint8Array(ab).set(u8); // copy contents
+  return ab;
 }
-
 function sendPdf(bytes: Uint8Array, filename: string) {
   const ab = toArrayBuffer(bytes);
   const blob = new Blob([ab], { type: 'application/pdf' });
@@ -48,7 +49,6 @@ function sendPdf(bytes: Uint8Array, filename: string) {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      // inline = เปิดในเบราว์เซอร์, เปลี่ยนเป็น attachment ถ้าอยากบังคับดาวน์โหลด
       'Content-Disposition': `inline; filename="${filename}"`,
       'Cache-Control': 'no-store',
       'Content-Length': String(bytes.byteLength),

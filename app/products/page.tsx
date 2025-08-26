@@ -23,7 +23,7 @@ export default function ProductsPage() {
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch('/api/products', { cache: 'no-store' });
+      const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       setProducts(data?.products || []);
     } finally {

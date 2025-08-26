@@ -1,21 +1,28 @@
 // app/pos/page.tsx
 'use client';
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
+import LocationPicker from '../components/LocationPicker';
+import type { LocationId } from '../data/locations';
+import { products as FALLBACK_PRODUCTS } from '../data/products';
+
+// (types/function เดิมของหมวยคงไว้ทั้งหมด)
+
+export const dynamic = 'force-dynamic';
 
 export default function POSPage() {
-  // ... โค้ดอื่น
+  // ... state & functions เดิมทั้งหมดของหมวย
 
   return (
     <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-[#fffff0]">
-      <HeaderMenu />   {/* ✅ เมนู */}
-      {/* ของเดิมทั้งหมด */}
-import { useEffect, useMemo, useState } from 'react';
-import LocationPicker from '../components/LocationPicker';
-import type { LocationId } from '../data/locations';
-import { products as FALLBACK_PRODUCTS } from '../data/products'; // fallback เท่านั้น
-
-// ป้องกัน Next พยายาม prerender หน้าแบบ static
-export const dynamic = 'force-dynamic';
+      <HeaderMenu />
+      {/* จากนี้เป็น UI เดิมของหมวยทั้งหมด */}
+      {/* ... */}
+    </main>
+  );
+}
 
 // ---------- Types ----------
 type Product = { id: number; name: string; price: number };

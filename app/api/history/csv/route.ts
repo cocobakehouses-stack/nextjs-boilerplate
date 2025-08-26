@@ -55,7 +55,7 @@ function rowsToCsv(rows: HistoryRow[], includeLocation: boolean) {
     lines.push(cols.map(csvEscape).join(','));
   }
 
-  // ใส่ BOM กันภาษาไทยเพี้ยน + ใช้ CRLF ให้ Excel แฮปปี้
+  // BOM + CRLF ให้ Excel อ่านไทยได้ถูก
   return '\uFEFF' + lines.join('\r\n');
 }
 
@@ -69,41 +69,25 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'missing date' }, { status: 400 });
     }
 
-    // สร้าง origin จาก header (รองรับ proxy บน Vercel)
-    const h = req.headers;
-    const proto = h.get('x-forwarded-proto') || url.protocol.replace(':', '');
-    const host = h.get('x-forwarded-host') || url.host;
-    const base = `${proto}://${host}`;
+    // ✅ เรียกใช้ /api/history ในโปรเซสเดียวกัน (ไม่วิ่งเครือข่าย)
+    //    - import ตัว route แล้วเรียกฟังก์ชัน GET โดยตรง
+    const { GET: historyGET } = await import('../route'); // app/api/history/route.ts
+    const internalReq = new Request(
+      // ใช้ base ใดๆ ก็ได้ เพราะเราไม่ออกนอกโปรเซส
+      `http://local/api/history?location=${encodeURIComponent(loc)}&date=${encodeURIComponent(date)}`,
+      { headers: { Accept: 'application/json' } }
+    );
 
-    // ถ้ามี Protection Bypass token ใส่ไปทั้ง header และ cookie
-    const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-      || process.env.VERCEL_PROTECTION_BYPASS
-      || process.env.PROTECTION_BYPASS_TOKEN
-      || '';
-
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-    };
-    if (bypass) {
-      headers['x-vercel-protection-bypass'] = bypass;
-      headers['Cookie'] = `vercel-protection-bypass=${bypass}`;
-    }
-
-    // ดึงข้อมูลจาก /api/history (ในโปรเจกต์เดียวกัน)
-    const api = new URL('/api/history', base);
-    api.searchParams.set('location', loc);
-    api.searchParams.set('date', date);
-
-    const res = await fetch(api.toString(), { cache: 'no-store', headers });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
+    const resp = await (historyGET as (r: Request, ctx?: any) => Promise<Response>)(internalReq);
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => '');
       return NextResponse.json(
-        { error: `failed to load history (${res.status})`, detail: detail.slice(0, 500) },
-        { status: 500 },
+        { error: `failed to load history (${resp.status})`, detail: detail.slice(0, 500) },
+        { status: 500 }
       );
     }
 
-    const data = await res.json();
+    const data = await resp.json();
     const rows: HistoryRow[] = data?.rows || [];
     const includeLoc = loc === 'ALL' || rows.some((r) => (r.location ?? '').trim() !== '');
 

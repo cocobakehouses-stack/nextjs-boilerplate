@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+// 🆕 Lucide icons
+import { Home, ShoppingCart, Package, BarChart3, Clock } from 'lucide-react';
 
 function classNames(...xs: (string | false | null | undefined)[]) {
   return xs.filter(Boolean).join(' ');
@@ -11,29 +13,34 @@ export default function HeaderMenu() {
   const pathname = usePathname();
 
   const links = [
-    { href: '/', label: 'Home' },
-    { href: '/pos', label: 'POS' },
-    { href: '/products', label: 'Products' },
-    { href: '/reports', label: 'Reports' },
-    { href: '/history', label: 'History' },
+    { href: '/', label: 'Home', icon: Home },
+    { href: '/pos', label: 'POS', icon: ShoppingCart },
+    { href: '/products', label: 'Products', icon: Package },
+    { href: '/reports', label: 'Reports', icon: BarChart3 },
+    { href: '/history', label: 'History', icon: Clock },
   ];
 
   return (
-    <div className="mb-4 flex items-center gap-3 bg-white/80 backdrop-blur px-4 py-2 rounded-xl border">
-      {links.map((l) => (
-        <Link
-          key={l.href}
-          href={l.href}
-          className={classNames(
-            'px-3 py-1 rounded-lg text-sm font-medium',
-            pathname === l.href
-              ? 'bg-[#ac0000] text-[#fffff0]'
-              : 'hover:bg-gray-100'
-          )}
-        >
-          {l.label}
-        </Link>
-      ))}
-    </div>
+    <nav className="mb-6 flex items-center gap-2 bg-white/80 backdrop-blur px-3 py-2 rounded-xl border shadow-sm">
+      {links.map((l) => {
+        const Icon = l.icon;
+        const active = pathname === l.href;
+        return (
+          <Link
+            key={l.href}
+            href={l.href}
+            className={classNames(
+              'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150',
+              active
+                ? 'bg-[#ac0000] text-[#fffff0]'
+                : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+            )}
+          >
+            <Icon className="w-4 h-4" />
+            {l.label}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

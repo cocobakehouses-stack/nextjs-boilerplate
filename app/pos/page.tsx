@@ -8,7 +8,7 @@ import type { LocationId } from '../data/locations';
 import { products as FALLBACK_PRODUCTS } from '../data/products';
 
 // Lucide React Icons
-import { ShoppingCart, Trash2, Plus, Minus, Home, CreditCard, Smartphone, Truck } from "lucide-react";
+import { ShoppingCart, Trash2, Plus, Minus, Home, CreditCard, Smartphone, Truck, CheckCircle } from "lucide-react";
 
 export const dynamic = 'force-dynamic';
 
@@ -106,15 +106,87 @@ export default function POSPage() {
 
   const totalQty = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
 
+  // Success
+  const [isSubmitting, setSubmitting] = useState(false);
+  const [lastSaved, setLastSaved] = useState<{
+    billNo: string; date: string; time: string; payment: string; total: number;
+  } | null>(null);
+
+  async function saveBill() {
+    if (!location || !payment) {
+      alert("กรุณาเลือกสถานที่และวิธีชำระเงิน");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const date = toDateString(new Date());
+      const time = toTimeString(new Date());
+      const payload = {
+        location,
+        date,
+        time,
+        items: cart,
+        subtotal,
+        discount,
+        markup: payment === 'lineman' ? totalAfterDiscount * linemanMarkupRate : 0,
+        total: grandTotal,
+        payment,
+      };
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'บันทึกไม่สำเร็จ');
+
+      setLastSaved({
+        billNo: data.billNo || 'N/A',
+        date,
+        time,
+        payment,
+        total: grandTotal,
+      });
+      setCart([]);
+      setPayment(null);
+      setDiscount(0);
+      setStep('success');
+    } catch (e: any) {
+      alert(e?.message || 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // ---------- UI Flow ----------
+  if (step === 'success' && lastSaved) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-[#fffff0]">
+        <div className="bg-white p-6 rounded-xl shadow-md text-center space-y-3">
+          <CheckCircle className="w-12 h-12 text-green-600 mx-auto" />
+          <h2 className="text-xl font-bold">บันทึกสำเร็จ</h2>
+          <p>เลขที่บิล: {lastSaved.billNo}</p>
+          <p>{lastSaved.date} {lastSaved.time}</p>
+          <p>วิธีชำระ: {lastSaved.payment}</p>
+          <p className="font-semibold text-lg">รวม {lastSaved.total.toFixed(2)} บาท</p>
+          <button
+            onClick={() => setStep('cart')}
+            className="mt-4 px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90"
+          >
+            ทำรายการใหม่
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-[#fffff0]">
-      {/* Header */}
       <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Home className="w-5 h-5 text-gray-600" />
           <h1 className="text-3xl font-bold">Coco Bakehouse POS</h1>
         </div>
-
         <div className="flex items-center gap-2">
           <ShoppingCart className="w-5 h-5 text-gray-600" />
           <span className="text-sm text-gray-700">
@@ -123,10 +195,8 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* Location Gate */}
       <LocationPicker value={location} onChange={(loc) => setLocation(loc as LocationId)} />
 
-      {/* Product List */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-32 mt-4">
         {products.map((p) => (
           <div key={p.id} className="bg-white border rounded-xl p-3 flex flex-col">
@@ -142,11 +212,9 @@ export default function POSPage() {
         ))}
       </div>
 
-      {/* Cart footer */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-md">
           <div className="max-w-5xl mx-auto p-4 space-y-3">
-            {/* Items */}
             <div className="overflow-auto max-h-40">
               {cart.map((item) => (
                 <div key={item.id} className="flex items-center justify-between border-b py-2">
@@ -170,7 +238,6 @@ export default function POSPage() {
               ))}
             </div>
 
-            {/* Discount */}
             <div>
               <label className="block text-sm text-gray-600">ส่วนลด (บาท)</label>
               <input
@@ -181,7 +248,6 @@ export default function POSPage() {
               />
             </div>
 
-            {/* Payment */}
             <div className="flex gap-2">
               <button
                 className={`flex-1 px-3 py-2 rounded-lg border ${payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
@@ -203,7 +269,6 @@ export default function POSPage() {
               </button>
             </div>
 
-            {/* Summary */}
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>Subtotal</span>
@@ -226,10 +291,11 @@ export default function POSPage() {
             </div>
 
             <button
-              disabled={!payment}
+              disabled={!payment || isSubmitting}
+              onClick={saveBill}
               className="w-full mt-3 py-2 bg-[#ac0000] text-[#fffff0] rounded-lg hover:opacity-90 disabled:opacity-40"
             >
-              ยืนยันการขาย
+              {isSubmitting ? 'Saving…' : 'ยืนยันการขาย'}
             </button>
           </div>
         </div>

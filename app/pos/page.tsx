@@ -2,21 +2,18 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import HeaderMenu from '../components/HeaderMenu';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
 import { products as FALLBACK_PRODUCTS } from '../data/products';
 
 // 🆕 Lucide React Icons
-import { ShoppingCart, Trash2, Plus, Minus, Home, CreditCard, Smartphone, Truck } from "lucide-react";
+import { ShoppingCart, Trash2, Plus, Minus, Home } from "lucide-react";
 
 export const dynamic = 'force-dynamic';
 
 // ---------- Types ----------
 type Product = { id: number; name: string; price: number };
 type CartItem = Product & { quantity: number };
-type Line = { name: string; qty: number; price: number };
-type Step = 'cart' | 'summary' | 'confirm' | 'success';
 
 // ---------- Helpers ----------
 const TZ = 'Asia/Bangkok';
@@ -47,13 +44,9 @@ export default function POSPage() {
     }
   }, [location]);
 
-  // Step flow
-  const [step, setStep] = useState<Step>('cart');
-
-  // Core states
+  // Cart state
   const [cart, setCart] = useState<CartItem[]>([]);
   const [added, setAdded] = useState<Record<number, boolean>>({});
-  const [payment, setPayment] = useState<'cash' | 'promptpay' | 'lineman' | null>(null);
 
   // ---------- Products from API (with fallback) ----------
   const [products, setProducts] = useState<Product[]>([]);
@@ -74,84 +67,6 @@ export default function POSPage() {
     }
   }
   useEffect(() => { reloadProducts(); }, []);
-
-  // Freebies
-  const [freebies, setFreebies] = useState<Line[]>([]);
-  const [freebiePick, setFreebiePick] = useState<number>(FALLBACK_PRODUCTS[0]?.id ?? 0);
-  useEffect(() => { if (products.length > 0) setFreebiePick(products[0].id); }, [products]);
-
-  // Date/Time
-  const [dateStr, setDateStr] = useState<string>(toDateString(new Date()));
-  const [timeStr, setTimeStr] = useState<string>(toTimeString(new Date()));
-
-  // For success screen
-  const [isSubmitting, setSubmitting] = useState(false);
-  const [lastSaved, setLastSaved] = useState<{
-    billNo: string; date: string; time: string; payment: 'cash' | 'promptpay' | 'lineman'; total: number;
-  } | null>(null);
-
-  // ---------- Products: auto-sort + grouping ----------
-  const allProducts = useMemo<Product[]>(() => {
-    const merged = [...products];
-    merged.sort((a, b) => b.price - a.price);
-    return merged;
-  }, [products]);
-
-  const grouped = useMemo(() => {
-    const premium: Product[] = [];
-    const levain: Product[] = [];
-    const soft: Product[] = [];
-    for (const p of allProducts) {
-      if (p.price > 135) premium.push(p);
-      else if (p.price >= 125 && p.price <= 135) levain.push(p);
-      else if (p.price <= 109) soft.push(p);
-    }
-    return { premium, levain, soft };
-  }, [allProducts]);
-
-  // ---------- Add new product (inline) ----------
-  const [newName, setNewName] = useState('');
-  const [newPrice, setNewPrice] = useState<number | ''>('');
-  const [busyAddProduct, setBusyAddProduct] = useState(false);
-
-  // Add panel open state (persist)
-  const [addPanelOpen, setAddPanelOpen] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const raw = window.localStorage.getItem('pos_add_panel_open');
-      return raw === null ? true : raw === '1';
-    } catch { return true; }
-  });
-  useEffect(() => {
-    try { window.localStorage.setItem('pos_add_panel_open', addPanelOpen ? '1' : '0'); } catch {}
-  }, [addPanelOpen]);
-
-  async function addNewProduct() {
-    const name = newName.trim();
-    const price = Number(newPrice);
-    if (!name || !Number.isFinite(price) || price <= 0) {
-      alert('กรอกชื่อและราคาที่ถูกต้อง');
-      return;
-    }
-    try {
-      setBusyAddProduct(true);
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, price }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Add product failed');
-      await reloadProducts();
-      setNewName('');
-      setNewPrice('');
-      alert('เพิ่มเมนูสำเร็จ');
-    } catch (e: any) {
-      alert(e?.message || 'Add product failed');
-    } finally {
-      setBusyAddProduct(false);
-    }
-  }
 
   // ---------- Cart operations ----------
   const addToCart = (p: Product) => {
@@ -204,6 +119,41 @@ export default function POSPage() {
       {/* Location Gate */}
       <LocationPicker value={location} onChange={(loc) => setLocation(loc as LocationId)} />
 
+      {/* Product grid */}
+      {location && (
+        <div className="mt-6">
+          {loadingProducts ? (
+            <p className="text-gray-600">Loading products…</p>
+          ) : products.length === 0 ? (
+            <p className="text-gray-600">No products found.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {products.map((p) => (
+                <div
+                  key={p.id}
+                  className="border rounded-xl bg-white p-4 shadow-sm flex flex-col items-center"
+                >
+                  <h3 className="font-semibold text-center">{p.name}</h3>
+                  <p className="text-gray-600 mb-3">{p.price} บาท</p>
+                  <button
+                    onClick={() => addToCart(p)}
+                    className={classNames(
+                      "w-full flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition",
+                      added[p.id]
+                        ? "bg-green-600 text-white"
+                        : "bg-[#ac0000] text-[#fffff0] hover:opacity-90"
+                    )}
+                  >
+                    <Plus className="w-4 h-4" />
+                    {added[p.id] ? "Added!" : "Add to Cart"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Cart footer */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-md">
@@ -213,10 +163,51 @@ export default function POSPage() {
               <span>{totalQty} ชิ้น</span>
               <span className="font-semibold">{subtotal} บาท</span>
             </div>
-            <button className="px-4 py-2 bg-[#ac0000] text-[#fffff0] rounded-lg hover:opacity-90">
-              ดำเนินการต่อ
+            <button
+              onClick={() => setCartOpen((s) => !s)}
+              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 text-sm"
+            >
+              {cartOpen ? "ปิดตะกร้า" : "เปิดตะกร้า"}
             </button>
           </div>
+
+          {cartOpen && (
+            <div className="max-w-5xl mx-auto border-t bg-white">
+              <div className="p-3 space-y-3">
+                {cart.map((i) => (
+                  <div key={i.id} className="flex justify-between items-center border-b pb-2">
+                    <div>
+                      <div className="font-semibold">{i.name}</div>
+                      <div className="text-sm text-gray-600">
+                        {i.price} บาท × {i.quantity}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => changeQty(i.id, i.quantity - 1)}
+                        className="p-1 border rounded"
+                      >
+                        <Minus className="w-4 h-4" />
+                      </button>
+                      <span>{i.quantity}</span>
+                      <button
+                        onClick={() => changeQty(i.id, i.quantity + 1)}
+                        className="p-1 border rounded"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => removeFromCart(i.id)}
+                        className="p-1 bg-red-500 text-white rounded"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </main>

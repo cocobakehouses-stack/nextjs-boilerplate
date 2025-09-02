@@ -40,7 +40,6 @@ export default function HistoryPage() {
   } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // โหลดรายการสถานที่จาก /api/locations + แทรก All
   useEffect(() => {
     const load = async () => {
       try {
@@ -61,7 +60,6 @@ export default function HistoryPage() {
     load();
   }, []);
 
-  // รวมยอดข้ามหลายสาขา (fallback เผื่อ backend ไม่รวมให้)
   function reduceTotals(all: HistoryRow[]) {
     const count = all.length;
     const totalQty = all.reduce((s, r) => s + (r.totalQty || 0), 0);
@@ -75,7 +73,6 @@ export default function HistoryPage() {
     return { count, totalQty, totalAmount, freebiesAmount, byPayment };
   }
 
-  // โหลดข้อมูล (สาขาเดียว / All)
   const fetchHistory = async () => {
     try {
       setLoading(true);
@@ -92,8 +89,11 @@ export default function HistoryPage() {
       const list: HistoryRow[] = (data?.rows || []);
       const withLoc = list.map(r => (r.location ? r : { ...r, location: location === ALL_ID ? '' : location }));
 
-      setRows(withLoc);
-      setTotals(data?.totals || reduceTotals(withLoc));
+      // เรียงบิลจากใหม่ → เก่า (billNo ตัวเลขมากไปน้อย)
+      const sorted = [...withLoc].sort((a, b) => Number(b.billNo) - Number(a.billNo));
+
+      setRows(sorted);
+      setTotals(data?.totals || reduceTotals(sorted));
     } catch (e) {
       console.error('load history error', e);
       setRows([]);
@@ -103,29 +103,21 @@ export default function HistoryPage() {
     }
   };
 
-  // ลิงก์ดาวน์โหลด
-  const csvHref = useMemo(() => {
-    if (!location || !date) return '#';
-    const u = new URL('/api/history/csv', window.location.origin);
-    u.searchParams.set('location', location);
-    u.searchParams.set('date', date);
-    return u.toString();
-  }, [location, date]);
-
-  const pdfHref = useMemo(() => {
-    if (!location || !date) return '#';
-    const u = new URL('/api/history/pdf', window.location.origin);
-    u.searchParams.set('location', location);
-    u.searchParams.set('date', date);
-    return u.toString();
-  }, [location, date]);
+  // summary แยก LINEMAN
+  const linemanSummary = useMemo(() => {
+    const linemanRows = rows.filter(r => r.payment?.toLowerCase() === 'lineman');
+    if (linemanRows.length === 0) return null;
+    return reduceTotals(linemanRows);
+  }, [rows]);
 
   return (
     <main className="min-h-screen bg-[#fffff0] p-4 sm:p-6 lg:p-8">
       <HeaderMenu />
       <h1 className="text-2xl font-bold mb-4">End of Day – History</h1>
 
+      {/* Controls */}
       <div className="rounded-xl border bg-white p-4 mb-4 flex flex-col sm:flex-row gap-3 sm:items-end">
+        {/* สาขา */}
         <div className="flex-1">
           <label className="block text-sm text-gray-600 mb-1">สถานที่</label>
           <select
@@ -138,20 +130,15 @@ export default function HistoryPage() {
             }}
             disabled={loadingLocs}
           >
-            {loadingLocs ? (
-              <option>Loading locations…</option>
-            ) : locations.length === 0 ? (
-              <option>— ไม่มีสถานที่ —</option>
-            ) : (
-              locations.map(l => (
-                <option key={l.id} value={l.id}>
-                  {l.label} {l.id !== ALL_ID ? `(${l.id})` : ''}
-                </option>
-              ))
-            )}
+            {locations.map(l => (
+              <option key={l.id} value={l.id}>
+                {l.label} {l.id !== ALL_ID ? `(${l.id})` : ''}
+              </option>
+            ))}
           </select>
         </div>
 
+        {/* วัน */}
         <div>
           <label className="block text-sm text-gray-600 mb-1">วันที่</label>
           <input
@@ -162,33 +149,41 @@ export default function HistoryPage() {
           />
         </div>
 
-        <div className="flex gap-2">
-          <button
-            className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] disabled:opacity-40"
-            onClick={fetchHistory}
-            disabled={!location || !date || loading}
-          >
-            {loading ? 'กำลังกำลังโหลด…' : 'ดูข้อมูล'}
-          </button>
-
-          <a
-            className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50"
-            href={csvHref}
-            onClick={(e) => { if (csvHref === '#') e.preventDefault(); }}
-          >
-            ดาวน์โหลด CSV
-          </a>
-          <a
-  className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50"
-  href={pdfHref}
-  // ให้ไฟล์ชื่อชัด ๆ เป็น .pdf เสมอ (กันเบราว์เซอร์เดางง ๆ)
-  download={`history_${location}_${date}.pdf`}
->
-  ดาวน์โหลด PDF
-</a>
-        </div>
+        <button
+          className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] disabled:opacity-40"
+          onClick={fetchHistory}
+          disabled={!location || !date || loading}
+        >
+          {loading ? 'กำลังโหลด…' : 'ดูข้อมูล'}
+        </button>
       </div>
 
+      {/* SUMMARY */}
+      {totals && (
+        <div className="rounded-xl border bg-white p-4 mb-6">
+          <div className="font-semibold mb-2">Summary</div>
+          <div>Bills: {totals.count} | Total Qty: {totals.totalQty}</div>
+          <div>Total Amount: {totals.totalAmount.toFixed(2)} THB</div>
+          <div>Freebies Amount: {totals.freebiesAmount.toFixed(2)} THB</div>
+          <div className="text-gray-700">
+            By Payment:{" "}
+            {Object.entries(totals.byPayment)
+              .map(([k, v]) => `${k}: ${v.toFixed(2)} THB`)
+              .join(" | ")}
+          </div>
+
+          {linemanSummary && (
+            <div className="mt-3 p-3 border rounded bg-gray-50">
+              <div className="font-semibold">📦 Lineman Summary</div>
+              <div>Bills: {linemanSummary.count}</div>
+              <div>Total Qty: {linemanSummary.totalQty}</div>
+              <div>Total Amount: {linemanSummary.totalAmount.toFixed(2)} THB</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TABLE */}
       <div className="rounded-xl border bg-white p-4">
         {rows.length === 0 ? (
           <div className="text-gray-600">{loading ? 'กำลังโหลด…' : 'ไม่มีข้อมูล'}</div>
@@ -222,23 +217,6 @@ export default function HistoryPage() {
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-
-        {totals && (
-          <div className="mt-4 text-sm">
-            <div className="font-semibold">Summary</div>
-            <div>Bills: {totals.count} | Total Qty: {totals.totalQty}</div>
-            <div>Total Amount: {totals.totalAmount.toFixed(2)} THB</div>
-            <div>Freebies Amount: {totals.freebiesAmount.toFixed(2)} THB</div>
-            {totals.byPayment && (
-              <div className="text-gray-700">
-                By Payment:{' '}
-                {Object.entries(totals.byPayment)
-                  .map(([k, v]) => `${k}: ${v.toFixed(2)} THB`)
-                  .join(' | ')}
-              </div>
-            )}
           </div>
         )}
       </div>

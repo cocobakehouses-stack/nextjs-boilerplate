@@ -1,4 +1,3 @@
-// app/api/orders/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { getAuth, ensureSheetExists, TZ } from '../../lib/sheets';
@@ -16,14 +15,13 @@ type Body = {
   items: Line[];
   freebies?: Line[];
 
-  // ฟิลด์ใหม่จากฝั่ง POS (optional บางค่า)
+  // ฟิลด์จากฝั่ง POS
   subtotal?: number;
   freebiesAmount?: number;
   linemanMarkup?: number;
-  linemanDiscount?: number;
+  discount?: number;   // ✅ ใช้กับทุกวิธีจ่าย
 
-  // ยอดสุดท้ายหลังคิดทุกอย่าง
-  total: number;
+  total: number; // ยอดสุดท้าย
 };
 
 // escape tab name
@@ -76,7 +74,7 @@ export async function POST(req: Request) {
       subtotal: inSubtotal,
       freebiesAmount: inFreebiesAmount,
       linemanMarkup: inMarkup,
-      linemanDiscount: inDiscount,
+      discount: inDiscount,
       total: inTotal,
     } = (await req.json()) as Body;
 
@@ -113,10 +111,10 @@ export async function POST(req: Request) {
       : freebiesAmountCalc;
 
     const linemanMarkup = Number.isFinite(inMarkup as number) ? Number(inMarkup) : 0;
-    const linemanDiscount = Number.isFinite(inDiscount as number) ? Number(inDiscount) : 0;
+    const discount = Number.isFinite(inDiscount as number) ? Number(inDiscount) : 0;
 
     // ถ้าฝั่ง client ไม่ส่ง total มา ให้คำนวณซ้ำเพื่อกันพลาด
-    const computedTotal = Number((subtotal - freebiesAmount + linemanMarkup - linemanDiscount).toFixed(2));
+    const computedTotal = Number((subtotal - freebiesAmount - discount + linemanMarkup).toFixed(2));
     const finalTotal = Number.isFinite(inTotal) ? Number(inTotal) : computedTotal;
 
     const sheetRef = a1Sheet(tabTitle);
@@ -136,8 +134,8 @@ export async function POST(req: Request) {
           finalTotal.toFixed(2),   // H: Total
           freebiesAmount.toFixed(2), // I: FreebiesAmount
           subtotal.toFixed(2),     // J: Subtotal
-          linemanMarkup.toFixed(2),   // K: LinemanMarkup
-          linemanDiscount.toFixed(2), // L: LinemanDiscount
+          linemanMarkup.toFixed(2),// K: LinemanMarkup
+          discount.toFixed(2),     // L: Discount (ทุกวิธีจ่าย)
         ]],
       },
     });
@@ -146,7 +144,7 @@ export async function POST(req: Request) {
       ok: true,
       saved: {
         date: useDate, time: useTime, billNo: useBillNo, payment, total: finalTotal,
-        tab: tabTitle, freebiesAmount, subtotal, linemanMarkup, linemanDiscount,
+        tab: tabTitle, freebiesAmount, subtotal, linemanMarkup, discount,
       },
     });
   } catch (e: any) {

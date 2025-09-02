@@ -110,6 +110,7 @@ export default function POSPage() {
   const [isSubmitting, setSubmitting] = useState(false);
   const [lastSaved, setLastSaved] = useState<{
     billNo: string; date: string; time: string; payment: string; total: number;
+    subtotal: number; discount: number; linemanMarkup: number;
   } | null>(null);
 
   async function saveBill() {
@@ -126,9 +127,10 @@ export default function POSPage() {
         date,
         time,
         items: cart,
+        freebies: [], // ยังไม่ได้ใช้ freebies
         subtotal,
         discount,
-        markup: payment === 'lineman' ? totalAfterDiscount * linemanMarkupRate : 0,
+        linemanMarkup: payment === 'lineman' ? totalAfterDiscount * linemanMarkupRate : 0,
         total: grandTotal,
         payment,
       };
@@ -141,11 +143,14 @@ export default function POSPage() {
       if (!res.ok) throw new Error(data?.error || 'บันทึกไม่สำเร็จ');
 
       setLastSaved({
-        billNo: data.billNo || 'N/A',
+        billNo: data?.saved?.billNo || 'N/A',
         date,
         time,
         payment,
-        total: grandTotal,
+        total: data?.saved?.total ?? grandTotal,
+        subtotal: data?.saved?.subtotal ?? subtotal,
+        discount: data?.saved?.discount ?? discount,
+        linemanMarkup: data?.saved?.linemanMarkup ?? 0,
       });
       setCart([]);
       setPayment(null);
@@ -168,6 +173,11 @@ export default function POSPage() {
           <p>เลขที่บิล: {lastSaved.billNo}</p>
           <p>{lastSaved.date} {lastSaved.time}</p>
           <p>วิธีชำระ: {lastSaved.payment}</p>
+          <p>Subtotal: {lastSaved.subtotal} บาท</p>
+          <p>Discount: -{lastSaved.discount} บาท</p>
+          {lastSaved.linemanMarkup > 0 && (
+            <p>Lineman Markup: +{lastSaved.linemanMarkup} บาท</p>
+          )}
           <p className="font-semibold text-lg">รวม {lastSaved.total.toFixed(2)} บาท</p>
           <button
             onClick={() => setStep('cart')}

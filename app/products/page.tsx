@@ -1,7 +1,7 @@
-// app/products/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Package, Loader2 } from 'lucide-react';
 import HeaderMenu from '../components/HeaderMenu';
 
 type Product = { id: number; name: string; price: number; active?: boolean };
@@ -34,8 +34,6 @@ export default function ProductsPage() {
   async function toggleActive(p: Product) {
     const current = p.active ?? true;
     const next = !current;
-
-    // optimistic update
     setProducts(prev => prev.map(x => (x.id === p.id ? { ...x, active: next } : x)));
     setPendingOn(p.id, true);
 
@@ -46,8 +44,7 @@ export default function ProductsPage() {
         body: JSON.stringify({ active: next }),
       });
       if (!res.ok) throw new Error('Toggle failed');
-    } catch (e) {
-      // revert ถ้าพลาด
+    } catch {
       setProducts(prev => prev.map(x => (x.id === p.id ? { ...x, active: current } : x)));
       alert('Toggle failed');
     } finally {
@@ -58,66 +55,72 @@ export default function ProductsPage() {
   useEffect(() => { load(); }, []);
 
   return (
-    <main className="min-h-screen bg-[#fffff0] p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-[var(--surface-muted)] p-6">
       <HeaderMenu />
-      <h1 className="text-2xl font-bold mb-4">Manage Products</h1>
 
-      {loading ? (
-        <p>Loading…</p>
-      ) : (
-        <div className="rounded-xl border bg-white overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left">ID</th>
-                <th className="px-3 py-2 text-left">Name</th>
-                <th className="px-3 py-2 text-right">Price</th>
-                <th className="px-3 py-2 text-center">Active</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p) => {
-                const isActive = p.active ?? true;
-                const isPending = pending.has(p.id);
-                return (
-                  <tr key={p.id} className="border-t">
-                    <td className="px-3 py-2">{p.id}</td>
-                    <td className="px-3 py-2">{p.name}</td>
-                    <td className="px-3 py-2 text-right">{p.price}</td>
-                    <td className="px-3 py-2 text-center">
-                      <label
-                        className={`inline-flex items-center select-none ${isPending ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
-                        title={isActive ? 'Active' : 'Inactive'}
-                      >
-                        <input
-                          type="checkbox"
-                          className="sr-only peer"
-                          checked={!!isActive}
-                          onChange={() => toggleActive(p)}
-                          disabled={isPending}
-                          aria-label={`Toggle ${p.name}`}
-                        />
-                        <div className="
-                          relative w-11 h-6 rounded-full bg-gray-200 transition
-                          peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-offset-2 peer-focus:ring-[#ac0000]
-                          peer-checked:bg-green-600
-                          after:content-[''] after:absolute after:top-[2px] after:left-[2px]
-                          after:w-5 after:h-5 after:rounded-full after:bg-white after:border after:transition-all
-                          peer-checked:after:translate-x-5
-                        " />
-                        <span className="ml-2 text-xs text-gray-600">
-                          {isActive ? 'Active' : 'Inactive'}
-                          {isPending ? '…' : ''}
-                        </span>
-                      </label>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="max-w-5xl mx-auto bg-white rounded-xl shadow p-6">
+        <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
+          <Package className="w-6 h-6 text-[var(--brand)]" />
+          Manage Products
+        </h1>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-gray-600">
+            <Loader2 className="w-5 h-5 animate-spin" /> กำลังโหลดสินค้า…
+          </div>
+        ) : (
+          <div className="overflow-auto rounded-xl border">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-gray-700">
+                <tr>
+                  <th className="px-3 py-2 text-left">ID</th>
+                  <th className="px-3 py-2 text-left">Name</th>
+                  <th className="px-3 py-2 text-right">Price</th>
+                  <th className="px-3 py-2 text-center">Active</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.map((p) => {
+                  const isActive = p.active ?? true;
+                  const isPending = pending.has(p.id);
+                  return (
+                    <tr key={p.id} className="border-t hover:bg-gray-50 transition">
+                      <td className="px-3 py-2">{p.id}</td>
+                      <td className="px-3 py-2">{p.name}</td>
+                      <td className="px-3 py-2 text-right">{p.price}</td>
+                      <td className="px-3 py-2 text-center">
+                        <label
+                          className={`inline-flex items-center ${isPending ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={!!isActive}
+                            onChange={() => toggleActive(p)}
+                            disabled={isPending}
+                          />
+                          <div className="
+                            relative w-11 h-6 rounded-full bg-gray-200 transition
+                            peer-focus:ring-2 peer-focus:ring-[var(--brand)]
+                            peer-checked:bg-green-600
+                            after:content-[''] after:absolute after:top-[2px] after:left-[2px]
+                            after:w-5 after:h-5 after:rounded-full after:bg-white after:border after:transition-all
+                            peer-checked:after:translate-x-5
+                          " />
+                          <span className="ml-2 text-xs text-gray-600">
+                            {isActive ? 'Active' : 'Inactive'}
+                            {isPending ? '…' : ''}
+                          </span>
+                        </label>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </main>
   );
 }

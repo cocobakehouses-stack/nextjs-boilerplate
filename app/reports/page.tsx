@@ -5,7 +5,23 @@ import { FileText, Loader2 } from 'lucide-react';
 import HeaderMenu from '../components/HeaderMenu';
 import LocationPicker from '../components/LocationPicker';
 
-// ... (type definitions ของ Period, Totals, Bucket, ReportResp, LocationRow คงเดิม)
+type Period = 'daily' | 'weekly' | 'monthly' | 'range';
+
+type Line = { name: string; qty: number; price: number };
+type OrderRow = {
+  date: string;
+  time: string;
+  billNo: string;
+  location: string;
+  items: Line[];
+  freebies: Line[];
+  subtotal: number;
+  discount: number;
+  linemanMarkup: number;
+  linemanDiscount: number;
+  total: number;
+  payment: 'cash' | 'promptpay' | 'lineman';
+};
 
 const TZ = 'Asia/Bangkok';
 function toBangkokDateString(d: Date = new Date()) {
@@ -19,7 +35,53 @@ function fmt(n: number, digits = 2) {
 }
 
 export default function ReportsPage() {
-  // ... (state และ useEffect เดิมทั้งหมด)
+  const [location, setLocation] = useState<string | null>(null);
+  const [period, setPeriod] = useState<Period>('daily');
+  const [rangeStart, setRangeStart] = useState<string>(toBangkokDateString());
+  const [rangeEnd, setRangeEnd] = useState<string>(toBangkokDateString());
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState<OrderRow[]>([]);
+
+  async function load() {
+    if (!location || !rangeStart || !rangeEnd) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/reports?location=${location}&start=${rangeStart}&end=${rangeEnd}`);
+      const data = await res.json();
+      setRows(data?.rows || []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ---------- SUMMARY NEW ----------
+  const productSummary = useMemo(() => {
+    const map: Record<string, { qty: number; amount: number }> = {};
+    let totalQty = 0;
+    let totalAmount = 0;
+    let linemanQty = 0;
+    let linemanAmount = 0;
+
+    for (const r of rows) {
+      for (const i of r.items) {
+        if (!map[i.name]) map[i.name] = { qty: 0, amount: 0 };
+        map[i.name].qty += i.qty;
+        map[i.name].amount += i.price * i.qty;
+      }
+      totalQty += r.items.reduce((s, i) => s + i.qty, 0);
+      totalAmount += r.total;
+      if (r.payment === 'lineman') {
+        linemanQty += r.items.reduce((s, i) => s + i.qty, 0);
+        linemanAmount += r.total;
+      }
+    }
+    return { map, totalQty, totalAmount, linemanQty, linemanAmount };
+  }, [rows]);
+
+  // ---------- SORT BILL DESC ----------
+  const sortedRows = useMemo(() => {
+    return [...rows].sort((a, b) => Number(b.billNo) - Number(a.billNo));
+  }, [rows]);
 
   return (
     <main className="min-h-screen bg-[var(--surface-muted)] p-6">
@@ -35,7 +97,6 @@ export default function ReportsPage() {
         <div className="bg-[var(--surface-muted)] rounded-xl p-4 mb-6 flex flex-wrap items-end gap-3 border">
           <LocationPicker value={location} onChange={(id) => setLocation(id)} includeAll />
           {/* period + start + end controls */}
-          {/* ...เหมือนโค้ดเดิม */}
           <button
             onClick={load}
             className="ml-auto px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40 flex items-center gap-2"
@@ -46,8 +107,68 @@ export default function ReportsPage() {
           </button>
         </div>
 
-        {/* Results */}
-        {/* …ใช้ logic เดิม แต่ครอบด้วย bg-white rounded-xl shadow p-4 + table hover:bg-gray-50 */}
+        {/* ---------- SUMMARY SECTION ---------- */}
+        {rows.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold mb-2">Summary</h2>
+            <div className="bg-[var(--surface-muted)] rounded-lg p-4 space-y-2">
+              <div className="font-medium">Total Products Sold:</div>
+              <ul className="list-disc pl-6 text-sm">
+                {Object.entries(productSummary.map).map(([name, v]) => (
+                  <li key={name}>
+                    {name}: {v.qty} ชิ้น = {fmt(v.amount)} บาท
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 font-bold">
+                รวมทั้งหมด: {productSummary.totalQty} ชิ้น = {fmt(productSummary.totalAmount)} บาท
+              </div>
+              <div className="mt-2 text-red-600 font-medium">
+                Lineman: {productSummary.linemanQty} ชิ้น = {fmt(productSummary.linemanAmount)} บาท
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------- TABLE ---------- */}
+        {rows.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full border text-sm">
+              <thead className="bg-[var(--surface-muted)]">
+                <tr>
+                  <th className="border px-2 py-1">BillNo</th>
+                  <th className="border px-2 py-1">Date</th>
+                  <th className="border px-2 py-1">Time</th>
+                  <th className="border px-2 py-1">Location</th>
+                  <th className="border px-2 py-1">Items</th>
+                  <th className="border px-2 py-1">Subtotal</th>
+                  <th className="border px-2 py-1">Discount</th>
+                  <th className="border px-2 py-1">Markup</th>
+                  <th className="border px-2 py-1">Total</th>
+                  <th className="border px-2 py-1">Payment</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedRows.map((r) => (
+                  <tr key={r.billNo} className="hover:bg-gray-50">
+                    <td className="border px-2 py-1">{r.billNo}</td>
+                    <td className="border px-2 py-1">{r.date}</td>
+                    <td className="border px-2 py-1">{r.time}</td>
+                    <td className="border px-2 py-1">{r.location}</td>
+                    <td className="border px-2 py-1">
+                      {r.items.map((i) => `${i.name}x${i.qty}`).join(', ')}
+                    </td>
+                    <td className="border px-2 py-1 text-right">{fmt(r.subtotal)}</td>
+                    <td className="border px-2 py-1 text-right">{fmt(r.discount)}</td>
+                    <td className="border px-2 py-1 text-right">{fmt(r.linemanMarkup)}</td>
+                    <td className="border px-2 py-1 text-right font-semibold">{fmt(r.total)}</td>
+                    <td className="border px-2 py-1">{r.payment}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </main>
   );

@@ -3,275 +3,439 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
-import { PackageSearch, Factory, Plus, Minus, RefreshCw, Loader2, Check, ChevronDown } from 'lucide-react';
+import LocationPicker from '../components/LocationPicker';
+import type { LocationId } from '../data/locations';
+import {
+  Boxes,
+  History as HistoryIcon,
+  Plus,
+  Minus,
+  RefreshCw,
+  Loader2,
+  Download,
+  Calendar,
+} from 'lucide-react';
 
-type LocationRow = { id: string; label: string };
-type Product = { id: number; name: string; price: number; active?: boolean };
-
-type StocksResp = {
-  location: string;
-  stocks: Record<number, number>; // productId -> qty
+type StockItem = {
+  productId: number;
+  name: string;
+  // ปริมาณคงเหลือของสาขาที่เลือก
+  qty: number;
+  // ราคาหรือข้อมูลเสริม (optional)
+  price?: number;
 };
 
-type AdjustBody = {
+type MovementRow = {
+  id?: string;
+  date: string;   // YYYY-MM-DD
+  time: string;   // HH:mm:ss
   location: string;
-  movements: { productId: number; delta: number; reason?: string; billNo?: string }[];
+  productId: number;
+  productName: string;
+  delta: number;  // + เพิ่มสต๊อก, - ลดสต๊อก
+  reason?: string;
+  user?: string;
 };
 
-const ALL = 'ALL';
+type Tab = 'stock' | 'movements';
+
+function cx(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(' ');
+}
 
 export default function StocksPage() {
-  // ----- state -----
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [location, setLocation] = useState<string>('');
-  const [products, setProducts] = useState<Product[]>([]);
-  const [stocks, setStocks] = useState<Record<number, number>>({});
-  const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [search, setSearch] = useState('');
-  const [collapseZero, setCollapseZero] = useState(false);
+  // -------- Location & Tabs --------
+  const [location, setLocation] = useState<LocationId | null>(null);
+  const [tab, setTab] = useState<Tab>('stock');
 
-  // ----- init -----
   useEffect(() => {
-    (async () => {
-      const locRes = await fetch('/api/locations', { cache: 'no-store' });
-      const locData = await locRes.json().catch(() => ({}));
-      const locs: LocationRow[] = locData?.locations || [];
-      const initial = (localStorage.getItem('pos_location') || '').toUpperCase();
-      setLocations(locs);
-      setLocation(locs.some(l => l.id === initial) ? initial : (locs[0]?.id || ''));
-    })();
+    try {
+      const saved = (localStorage.getItem('pos_location') as LocationId | null) || null;
+      if (saved) setLocation(saved);
+    } catch {}
   }, []);
 
   useEffect(() => {
-    (async () => {
-      const pRes = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
-      const pData = await pRes.json().catch(() => ({}));
-      setProducts(pData?.products || []);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!location) return;
-    refreshStocks();
+    if (location) {
+      try { localStorage.setItem('pos_location', location); } catch {}
+    }
   }, [location]);
 
-  async function refreshStocks() {
-    setLoading(true);
+  // =========================================================
+  // ================   TAB 1: CURRENT STOCK   ===============
+  // =========================================================
+  const [loadingStock, setLoadingStock] = useState(false);
+  const [stocks, setStocks] = useState<StockItem[]>([]);
+  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
+
+  const setPendingOn = (id: number, on: boolean) => {
+    setPendingIds(prev => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  async function loadStocks() {
+    if (!location) return;
+    setLoadingStock(true);
     try {
       const res = await fetch(`/api/stocks?location=${encodeURIComponent(location)}`, { cache: 'no-store' });
-      const data: StocksResp = await res.json();
-      setStocks(data?.stocks || {});
+      const data = await res.json().catch(() => ({}));
+      setStocks(data?.stocks || []);
+    } catch (e) {
+      console.error('Load stocks error', e);
+      setStocks([]);
     } finally {
-      setLoading(false);
+      setLoadingStock(false);
     }
   }
 
-  // ----- helpers -----
-  const list = useMemo(() => {
-    const filtered = products
-      .filter(p => (search ? p.name.toLowerCase().includes(search.toLowerCase()) : true))
-      .map(p => ({ ...p, qty: stocks[p.id] ?? 0 }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'th'));
-    return collapseZero ? filtered.filter(p => p.qty !== 0) : filtered;
-  }, [products, stocks, search, collapseZero]);
+  useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab]);
 
-  const totalItems = useMemo(() => {
-    return Object.values(stocks).reduce((s, n) => s + (n || 0), 0);
-  }, [stocks]);
-
-  // ----- actions -----
-  async function adjust(productId: number, delta: number, reason: string) {
+  async function mutateQty(p: StockItem, kind: 'inc'|'dec'|'set', setTo?: number) {
     if (!location) return;
-    setBusy(true);
+    const delta = kind === 'inc' ? 1 : kind === 'dec' ? -1 : 0;
+    const nextQty = kind === 'set' ? Math.max(0, Number(setTo || 0)) : Math.max(0, p.qty + delta);
+
+    // optimistic update
+    setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: nextQty } : x));
+    setPendingOn(p.productId, true);
+
     try {
-      // optimistic
-      setStocks(prev => ({ ...prev, [productId]: Math.max(0, (prev[productId] || 0) + delta) }));
-      const body: AdjustBody = { location, movements: [{ productId, delta, reason }] };
-      const res = await fetch('/api/stocks/adjust', {
+      const body: any = kind === 'set'
+        ? { setTo: nextQty, reason: 'manual set' }
+        : { delta, reason: delta > 0 ? 'manual +1' : 'manual -1' };
+
+      const res = await fetch(`/api/stocks/${p.productId}?location=${encodeURIComponent(location)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error('Adjust failed');
-    } catch (e: any) {
-      // fallback refresh
-      await refreshStocks();
-      alert(e?.message || 'ปรับสต๊อกไม่สำเร็จ');
+      if (!res.ok) throw new Error('Update stock failed');
+    } catch (e) {
+      // revert
+      setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: p.qty } : x));
+      alert('อัปเดตสต๊อกไม่สำเร็จ');
     } finally {
-      setBusy(false);
+      setPendingOn(p.productId, false);
     }
   }
 
-  async function setExact(productId: number) {
-    const current = stocks[productId] ?? 0;
-    const input = prompt(`ตั้งจำนวนคงเหลือสำหรับสินค้า #${productId}`, String(current));
-    if (input === null) return;
-    const n = Number(input);
-    if (!Number.isFinite(n) || n < 0) {
-      alert('ใส่ตัวเลข >= 0');
-      return;
+  // =========================================================
+  // ==============   TAB 2: MOVEMENT HISTORY   =============
+  // =========================================================
+  const [mvLoading, setMvLoading] = useState(false);
+  const [mvRows, setMvRows] = useState<MovementRow[]>([]);
+  const [mvStart, setMvStart] = useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate() - 7);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(d);
+  });
+  const [mvEnd, setMvEnd] = useState<string>(() => {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+  });
+
+  async function loadMovements() {
+    if (!location || !mvStart || !mvEnd) return;
+    setMvLoading(true);
+    try {
+      const q = new URLSearchParams({
+        location: location,
+        start: mvStart,
+        end: mvEnd,
+      }).toString();
+      const res = await fetch(`/api/stocks/movements?${q}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      const list: MovementRow[] = data?.movements || [];
+      // เรียงเวลาจากใหม่ -> เก่า
+      list.sort((a, b) => {
+        const ka = `${a.date}T${a.time}`;
+        const kb = `${b.date}T${b.time}`;
+        return kb.localeCompare(ka);
+      });
+      setMvRows(list);
+    } catch (e) {
+      console.error('Load movements error', e);
+      setMvRows([]);
+    } finally {
+      setMvLoading(false);
     }
-    const delta = n - current;
-    if (delta === 0) return;
-    await adjust(productId, delta, 'adjust');
   }
 
-  // ----- UI -----
+  useEffect(() => { if (tab === 'movements') loadMovements(); }, [location, tab]);
+
+  const csvHref = useMemo(() => {
+    if (!location || !mvStart || !mvEnd) return '#';
+    const u = new URL('/api/stocks/movements/csv', window.location.origin);
+    u.searchParams.set('location', location);
+    u.searchParams.set('start', mvStart);
+    u.searchParams.set('end', mvEnd);
+    return u.toString();
+  }, [location, mvStart, mvEnd]);
+
+  // =========================================================
+  // ======================   RENDER   =======================
+  // =========================================================
   return (
     <main className="min-h-screen bg-[var(--surface-muted)] p-6">
       <HeaderMenu />
 
       <div className="max-w-6xl mx-auto bg-white rounded-xl shadow p-6">
-        <div className="flex items-center justify-between gap-3 mb-6">
+        {/* Title */}
+        <div className="flex items-center justify-between gap-3 mb-4">
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <PackageSearch className="w-6 h-6 text-[var(--brand)]" />
-            Manage Stocks
+            <Boxes className="w-6 h-6 text-[var(--brand)]" />
+            Stocks
           </h1>
+          {/* Location */}
+          <div className="min-w-[220px]">
+            <LocationPicker value={location} onChange={(id) => setLocation(id as LocationId)} />
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center gap-2 mb-6">
           <button
-            onClick={refreshStocks}
-            className="px-3 py-2 rounded-lg border hover:bg-gray-50 flex items-center gap-2"
-            disabled={loading}
-            title="รีเฟรชข้อมูล"
+            className={cx(
+              'px-3 py-2 rounded-lg border text-sm flex items-center gap-2',
+              tab === 'stock' ? 'bg-[var(--brand)] text-[var(--brand-contrast)] border-[var(--brand)]' : 'hover:bg-gray-50'
+            )}
+            onClick={() => setTab('stock')}
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            Refresh
+            <Boxes className="w-4 h-4" /> Current Stock
+          </button>
+          <button
+            className={cx(
+              'px-3 py-2 rounded-lg border text-sm flex items-center gap-2',
+              tab === 'movements' ? 'bg-[var(--brand)] text-[var(--brand-contrast)] border-[var(--brand)]' : 'hover:bg-gray-50'
+            )}
+            onClick={() => setTab('movements')}
+          >
+            <HistoryIcon className="w-4 h-4" /> Movement History
           </button>
         </div>
 
-        {/* Controls */}
-        <div className="bg-[var(--surface-muted)] border rounded-xl p-4 mb-6 grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div className="col-span-1 md:col-span-2">
-            <label className="block text-sm text-gray-600 mb-1">สถานที่</label>
-            <div className="relative">
-              <Factory className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-              <select
-                className="w-full rounded-lg border pl-9 pr-8 py-2 bg-white"
-                value={location}
-                onChange={(e) => {
-                  setLocation(e.target.value.toUpperCase());
-                  if (e.target.value) localStorage.setItem('pos_location', e.target.value.toUpperCase());
-                }}
+        {/* ===== TAB: CURRENT STOCK ===== */}
+        {tab === 'stock' && (
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
+              </div>
+              <button
+                onClick={loadStocks}
+                className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
+                disabled={!location || loadingStock}
               >
-                {locations.length === 0 ? (
-                  <option>Loading…</option>
-                ) : (
-                  locations.map(l => (
-                    <option key={l.id} value={l.id}>{l.label} ({l.id})</option>
-                  ))
-                )}
-              </select>
-              <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Refresh
+              </button>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-sm text-gray-600 mb-1">ค้นหาสินค้า</label>
-            <input
-              className="w-full rounded-lg border px-3 py-2"
-              placeholder="พิมพ์ชื่อสินค้า…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-
-          <div className="flex items-end">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={collapseZero}
-                onChange={(e) => setCollapseZero(e.target.checked)}
-              />
-              ซ่อนสินค้าที่สต๊อกเป็น 0
-            </label>
-          </div>
-        </div>
-
-        {/* Summary bar */}
-        <div className="mb-4 text-sm text-gray-700 flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-2 bg-[var(--surface-muted)] rounded-lg border px-3 py-2">
-            รวมคงเหลือทั้งหมด: <b>{totalItems}</b> ชิ้น
-          </span>
-          <span className="text-gray-500">รายการที่แสดง: {list.length} / {products.length}</span>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-auto rounded-xl border">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-gray-700">
-              <tr>
-                <th className="px-3 py-2 text-left">ID</th>
-                <th className="px-3 py-2 text-left">Product</th>
-                <th className="px-3 py-2 text-right">Price</th>
-                <th className="px-3 py-2 text-center">Qty</th>
-                <th className="px-3 py-2 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((p) => {
-                const qty = p.qty || 0;
-                return (
-                  <tr key={p.id} className="border-t hover:bg-gray-50 transition">
-                    <td className="px-3 py-2">{p.id}</td>
-                    <td className="px-3 py-2">{p.name}</td>
-                    <td className="px-3 py-2 text-right">{p.price}</td>
-                    <td className="px-3 py-2 text-center">
-                      <span className={`inline-flex items-center justify-center w-14 px-2 py-1 rounded-lg border
-                        ${qty === 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white'}
-                      `}>
-                        {qty}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => adjust(p.id, -1, 'adjust')}
-                          disabled={busy || qty <= 0}
-                          className="px-2 py-1 rounded-lg border hover:bg-gray-50 disabled:opacity-40"
-                          title="ลด 1"
-                        >
-                          <Minus className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => adjust(p.id, +1, 'restock')}
-                          disabled={busy}
-                          className="px-2 py-1 rounded-lg border hover:bg-gray-50 disabled:opacity-40"
-                          title="เพิ่ม 1 (รับเข้า)"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setExact(p.id)}
-                          disabled={busy}
-                          className="px-3 py-1 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40"
-                          title="ตั้งค่าเป็นจำนวนที่ระบุ"
-                        >
-                          Set exact
-                        </button>
-                      </div>
-                    </td>
+            <div className="overflow-auto rounded-xl border">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Product</th>
+                    <th className="px-3 py-2 text-right">Qty</th>
+                    <th className="px-3 py-2 text-center">Actions</th>
                   </tr>
-                );
-              })}
+                </thead>
+                <tbody>
+                  {stocks.map((p) => {
+                    const isPending = pendingIds.has(p.productId);
+                    return (
+                      <tr key={p.productId} className="border-t hover:bg-gray-50">
+                        <td className="px-3 py-2">{p.name}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{p.qty}</td>
+                        <td className="px-3 py-2">
+                          <div className={cx('flex items-center justify-center gap-2', isPending && 'opacity-60')}>
+                            <button
+                              className="px-2 py-1 rounded border hover:bg-gray-50"
+                              onClick={() => mutateQty(p, 'dec')}
+                              disabled={isPending}
+                              title="ลด -1"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </button>
+                            <button
+                              className="px-2 py-1 rounded border hover:bg-gray-50"
+                              onClick={() => mutateQty(p, 'inc')}
+                              disabled={isPending}
+                              title="เพิ่ม +1"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                            {/* Set exact */}
+                            <SetExactButton
+                              qty={p.qty}
+                              onSet={(val) => mutateQty(p, 'set', val)}
+                              disabled={isPending}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {stocks.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="px-3 py-6 text-center text-gray-600">
+                        {loadingStock ? 'กำลังโหลด…' : 'ไม่มีสินค้าในสาขานี้'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
-              {list.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-gray-500">
-                    {loading ? (
-                      <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> กำลังโหลด…</span>
-                    ) : search ? 'ไม่พบสินค้าที่ตรงกับคำค้น' : 'ยังไม่มีข้อมูลสินค้า'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {/* ===== TAB: MOVEMENT HISTORY ===== */}
+        {tab === 'movements' && (
+          <section className="space-y-4">
+            {/* Filters */}
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="text-sm text-gray-600">
+                {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600 flex items-center gap-1">
+                  <Calendar className="w-4 h-4" /> Start
+                </label>
+                <input
+                  type="date"
+                  className="rounded border px-3 py-2 bg-white"
+                  value={mvStart}
+                  onChange={(e) => setMvStart(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600 flex items-center gap-1">
+                  <Calendar className="w-4 h-4" /> End
+                </label>
+                <input
+                  type="date"
+                  className="rounded border px-3 py-2 bg-white"
+                  value={mvEnd}
+                  onChange={(e) => setMvEnd(e.target.value)}
+                />
+              </div>
 
-        {/* Legend */}
-        <div className="mt-4 text-xs text-gray-500">
-          * “เพิ่ม 1” = restock เข้าสต๊อก, “ลด 1” = ปรับลด/ขายออกเร็ว ๆ, “Set exact” = ตั้งจำนวนคงเหลือให้ตรงตัว
-        </div>
+              <div className="ml-auto flex items-center gap-2">
+                <a
+                  href={csvHref}
+                  onClick={(e) => { if (csvHref === '#') e.preventDefault(); }}
+                  className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
+                >
+                  <Download className="w-4 h-4" /> CSV
+                </a>
+                <button
+                  onClick={loadMovements}
+                  className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50 disabled:opacity-50"
+                  disabled={!location || !mvStart || !mvEnd || mvLoading}
+                >
+                  {mvLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Load
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-auto rounded-xl border">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Date</th>
+                    <th className="px-3 py-2 text-left">Time</th>
+                    <th className="px-3 py-2 text-left">Product</th>
+                    <th className="px-3 py-2 text-right">Δ</th>
+                    <th className="px-3 py-2 text-left">Reason</th>
+                    <th className="px-3 py-2 text-left">By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mvRows.map((r, i) => (
+                    <tr key={r.id ?? `${r.date}-${r.time}-${r.productId}-${i}`} className="border-t hover:bg-gray-50">
+                      <td className="px-3 py-2">{r.date}</td>
+                      <td className="px-3 py-2">{r.time}</td>
+                      <td className="px-3 py-2">{r.productName}</td>
+                      <td className={cx('px-3 py-2 text-right tabular-nums', r.delta > 0 ? 'text-green-700' : r.delta < 0 ? 'text-red-700' : '')}>
+                        {r.delta > 0 ? `+${r.delta}` : r.delta}
+                      </td>
+                      <td className="px-3 py-2 text-gray-700">{r.reason || '-'}</td>
+                      <td className="px-3 py-2">{r.user || '-'}</td>
+                    </tr>
+                  ))}
+                  {mvRows.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-6 text-center text-gray-600">
+                        {mvLoading ? 'กำลังโหลด…' : 'ไม่มีประวัติในช่วงที่เลือก'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
       </div>
     </main>
+  );
+}
+
+/** ปุ่ม Set exact (inline) */
+function SetExactButton({
+  qty,
+  onSet,
+  disabled,
+}: {
+  qty: number;
+  onSet: (val: number) => void;
+  disabled?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState<string>(() => String(qty));
+
+  useEffect(() => { setVal(String(qty)); }, [qty]);
+
+  if (!editing) {
+    return (
+      <button
+        className="px-2 py-1 rounded border hover:bg-gray-50 text-xs"
+        onClick={() => setEditing(true)}
+        disabled={disabled}
+        title="ตั้งค่าจำนวนตรงๆ"
+      >
+        Set
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="number"
+        className="w-20 rounded border px-2 py-1 text-sm"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        min={0}
+      />
+      <button
+        className="px-2 py-1 rounded border hover:bg-gray-50 text-xs"
+        onClick={() => {
+          const n = Number(val);
+          if (Number.isFinite(n) && n >= 0) onSet(n);
+          setEditing(false);
+        }}
+      >
+        OK
+      </button>
+      <button
+        className="px-2 py-1 rounded border hover:bg-gray-50 text-xs"
+        onClick={() => { setVal(String(qty)); setEditing(false); }}
+      >
+        Cancel
+      </button>
+    </div>
   );
 }

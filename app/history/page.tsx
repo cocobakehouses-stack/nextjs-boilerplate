@@ -2,7 +2,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import HeaderMenu from '../components/HeaderMenu';
 
 type LocationRow = { id: string; label: string };
 type HistoryRow = {
@@ -29,10 +28,17 @@ export default function HistoryPage() {
   // โหลด locations
   useEffect(() => {
     const load = async () => {
-      const res = await fetch('/api/locations', { cache: 'no-store' });
-      const data = await res.json().catch(() => ({}));
-      setLocations([{ id: ALL_ID, label: 'All Locations' }, ...(data?.locations || [])]);
-      setLocation((localStorage.getItem('pos_location') || ALL_ID).toUpperCase());
+      try {
+        const res = await fetch('/api/locations', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        setLocations([{ id: ALL_ID, label: 'All Locations' }, ...(data?.locations || [])]);
+
+        const saved = (localStorage.getItem('pos_location') || ALL_ID).toUpperCase();
+        setLocation(saved);
+      } catch {
+        setLocations([{ id: ALL_ID, label: 'All Locations' }]);
+        setLocation(ALL_ID);
+      }
     };
     load();
   }, []);
@@ -51,16 +57,21 @@ export default function HistoryPage() {
   // โหลดข้อมูล
   async function fetchHistory() {
     setLoading(true);
-    const url = new URL('/api/history', window.location.origin);
-    url.searchParams.set('location', location);
-    url.searchParams.set('date', date);
-    const res = await fetch(url.toString(), { cache: 'no-store' });
-    const data = await res.json();
-    const list: HistoryRow[] = data?.rows || [];
-    const sorted = list.sort((a, b) => Number(b.billNo) - Number(a.billNo));
-    setRows(sorted);
-    setTotals(data?.totals || reduceTotals(sorted));
-    setLoading(false);
+    try {
+      const url = new URL('/api/history', window.location.origin);
+      url.searchParams.set('location', location);
+      url.searchParams.set('date', date);
+
+      const res = await fetch(url.toString(), { cache: 'no-store' });
+      const data = await res.json();
+
+      const list: HistoryRow[] = data?.rows || [];
+      const sorted = list.sort((a, b) => Number(b.billNo) - Number(a.billNo)); // มาก→น้อย
+      setRows(sorted);
+      setTotals(data?.totals || reduceTotals(sorted));
+    } finally {
+      setLoading(false);
+    }
   }
 
   // แยก Lineman summary
@@ -79,7 +90,8 @@ export default function HistoryPage() {
         if (m) {
           const name = m[1].trim(); const qty = Number(m[2]);
           if (!sum[name]) sum[name] = { qty: 0, amount: 0 };
-          sum[name].qty += qty; sum[name].amount += total; // approx.
+          sum[name].qty += qty;
+          sum[name].amount += total; // approx.
         }
       });
     };
@@ -91,20 +103,41 @@ export default function HistoryPage() {
   }, [rows]);
 
   return (
-    <main className="min-h-screen bg-[#fffff0] p-6">
-      <HeaderMenu />
+    <>
       <h1 className="text-2xl font-bold mb-4">End of Day – History</h1>
 
       {/* Controls */}
-      <div className="rounded-xl border bg-white p-4 mb-6 flex gap-3">
-        <select value={location} onChange={e => setLocation(e.target.value)}
-          className="rounded border px-3 py-2">
-          {locations.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
-        </select>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)}
-          className="rounded border px-3 py-2" />
-        <button onClick={fetchHistory}
-          className="px-4 py-2 rounded bg-[#ac0000] text-[#fffff0]">ดูข้อมูล</button>
+      <div className="rounded-xl border bg-white p-4 mb-6 flex flex-col sm:flex-row gap-3 sm:items-end">
+        <div className="flex-1">
+          <label className="block text-sm text-gray-600 mb-1">สถานที่</label>
+          <select
+            value={location}
+            onChange={e => setLocation(e.target.value)}
+            className="rounded border px-3 py-2 w-full bg-white"
+          >
+            {locations.map(l => (
+              <option key={l.id} value={l.id}>{l.label}{l.id !== ALL_ID ? ` (${l.id})` : ''}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm text-gray-600 mb-1">วันที่</label>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="rounded border px-3 py-2 bg-white"
+          />
+        </div>
+
+        <button
+          onClick={fetchHistory}
+          className="px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40"
+          disabled={!location || !date || loading}
+        >
+          {loading ? 'กำลังโหลด…' : 'ดูข้อมูล'}
+        </button>
       </div>
 
       {/* SUMMARY */}
@@ -116,7 +149,10 @@ export default function HistoryPage() {
             <div>Total: {totals.totalAmount.toFixed(2)} THB</div>
             <div>Freebies: {totals.freebiesAmount.toFixed(2)} THB</div>
             <div className="text-gray-700">
-              By Payment: {Object.entries(totals.byPayment).map(([k,v])=>`${k}: ${v.toFixed(2)} THB`).join(' | ')}
+              By Payment:{' '}
+              {Object.entries(totals.byPayment)
+                .map(([k, v]) => `${k}: ${v.toFixed(2)} THB`)
+                .join(' | ')}
             </div>
           </div>
 
@@ -131,28 +167,47 @@ export default function HistoryPage() {
           {/* Product Summary Non-Lineman */}
           <div>
             <div className="font-semibold mb-2">🛒 Product Sales (Non-Lineman)</div>
-            <table className="min-w-full text-sm border">
-              <thead className="bg-gray-100"><tr><th>Product</th><th>Qty</th><th>Amount</th></tr></thead>
-              <tbody>
-                {Object.entries(productSummaryNonLineman).map(([n,v])=>(
-                  <tr key={n}><td>{n}</td><td>{v.qty}</td><td>{v.amount.toFixed(2)}</td></tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm border">
+                <thead className="bg-gray-100">
+                  <tr><th className="text-left p-2">Product</th><th className="text-right p-2">Qty</th><th className="text-right p-2">Amount</th></tr>
+                </thead>
+                <tbody>
+                  {Object.entries(productSummaryNonLineman).map(([n, v]) => (
+                    <tr key={n} className="border-t">
+                      <td className="p-2">{n}</td>
+                      <td className="p-2 text-right">{v.qty}</td>
+                      <td className="p-2 text-right">{v.amount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {Object.keys(productSummaryNonLineman).length === 0 && (
+                    <tr><td colSpan={3} className="p-2 text-gray-500">No data</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Product Summary Lineman */}
-          {Object.keys(productSummaryLineman).length>0 && (
+          {Object.keys(productSummaryLineman).length > 0 && (
             <div>
               <div className="font-semibold mb-2">📦 Product Sales (Lineman)</div>
-              <table className="min-w-full text-sm border">
-                <thead className="bg-gray-100"><tr><th>Product</th><th>Qty</th><th>Amount</th></tr></thead>
-                <tbody>
-                  {Object.entries(productSummaryLineman).map(([n,v])=>(
-                    <tr key={n}><td>{n}</td><td>{v.qty}</td><td>{v.amount.toFixed(2)}</td></tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm border">
+                  <thead className="bg-gray-100">
+                    <tr><th className="text-left p-2">Product</th><th className="text-right p-2">Qty</th><th className="text-right p-2">Amount</th></tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(productSummaryLineman).map(([n, v]) => (
+                      <tr key={n} className="border-t">
+                        <td className="p-2">{n}</td>
+                        <td className="p-2 text-right">{v.qty}</td>
+                        <td className="p-2 text-right">{v.amount.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -160,27 +215,41 @@ export default function HistoryPage() {
 
       {/* TABLE */}
       <div className="rounded-xl border bg-white p-4">
-        {rows.length===0? <div>{loading?'กำลังโหลด…':'ไม่มีข้อมูล'}</div> : (
-          <table className="min-w-full text-sm">
-            <thead className="border-b"><tr>
-              {location===ALL_ID && <th>Location</th>}
-              <th>Time</th><th>Bill</th><th>Items</th><th>Qty</th>
-              <th>Payment</th><th>Total</th><th>Freebies</th>
-            </tr></thead>
-            <tbody>
-              {rows.map((r,idx)=>(
-                <tr key={idx} className="border-b">
-                  {location===ALL_ID && <td>{r.location}</td>}
-                  <td>{r.time}</td><td>{r.billNo}</td>
-                  <td>{r.items}</td><td>{r.totalQty}</td>
-                  <td>{r.payment}</td><td>{r.total.toFixed(2)}</td>
-                  <td>{r.freebies}</td>
+        {rows.length === 0 ? (
+          <div className="text-gray-600">{loading ? 'กำลังโหลด…' : 'ไม่มีข้อมูล'}</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-left border-b">
+                <tr className="[&>th]:py-2 [&>th]:px-2">
+                  {location === ALL_ID && <th>Location</th>}
+                  <th>Time</th>
+                  <th>Bill</th>
+                  <th>Items</th>
+                  <th>Qty</th>
+                  <th>Payment</th>
+                  <th>Total</th>
+                  <th>Freebies</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r, idx) => (
+                  <tr key={idx} className="border-b last:border-0 [&>td]:py-2 [&>td]:px-2">
+                    {location === ALL_ID && <td>{r.location}</td>}
+                    <td>{r.time}</td>
+                    <td>{r.billNo}</td>
+                    <td className="max-w-[520px] whitespace-pre-wrap break-words">{r.items}</td>
+                    <td>{r.totalQty}</td>
+                    <td>{r.payment}</td>
+                    <td>{(r.total ?? 0).toFixed(2)}</td>
+                    <td className="max-w-[320px] whitespace-pre-wrap break-words">{r.freebies}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
-    </main>
+    </>
   );
 }

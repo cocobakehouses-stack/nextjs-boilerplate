@@ -13,13 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="th">
       <body className="min-h-screen bg-[var(--surface-muted)] text-[var(--text)] antialiased">
         <Providers>
-          {/* Global Sticky Header */}
-          <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur">
-            <div className="max-w-6xl mx-auto px-4 py-2">
-              <HeaderMenu />
-            </div>
-          </header>
-
+  
           {/* Page container */}
           <main className="max-w-6xl mx-auto px-4 py-6">
             {children}

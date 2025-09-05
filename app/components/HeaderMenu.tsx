@@ -39,7 +39,7 @@ export default function HeaderMenu() {
   };
 
   return (
-    <header className="mb-4 rounded-xl border bg-white/80 px-3 py-2 backdrop-blur">
+    <header className="mb-4 rounded-xl border bg-white/80 px-4 py-2 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-2">
         {Brand}
 

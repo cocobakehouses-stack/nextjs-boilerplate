@@ -1,5 +1,5 @@
 // app/layout.tsx
-import './global.css';
+import './globals.css';
 import type { Metadata } from 'next';
 import HeaderMenu from './components/HeaderMenu';
 // app/layout.tsx (เฉพาะส่วน body)

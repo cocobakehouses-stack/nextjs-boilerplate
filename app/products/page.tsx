@@ -1,31 +1,37 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Package, Loader2, Plus, Pencil, Save, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Package, Loader2, Plus, Pencil, Save, X, ArrowUpNarrowWide, ArrowDownWideNarrow } from 'lucide-react';
 import HeaderMenu from '../components/HeaderMenu';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
 
 type Product = { id: number; name: string; price: number; active?: boolean };
 
+type SortKey = 'id' | 'name' | 'price' | 'active';
+type SortDir = 'asc' | 'desc';
+
+const LS_KEY = 'products_list_state_v1';
+
 export default function ProductsPage() {
   const { push } = useToast();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pending, setPending] = useState<Set<number>>(new Set());
+  const [pending, setPending] = useState<Set<number>>(new Set()); // ids ที่กำลังอัปเดต
 
-  // search & sort
+  // search & sort (จำสถานะไว้)
   const [q, setQ] = useState('');
-  const [sortKey, setSortKey] = useState<'id'|'name'|'price'|'active'>('id');
-  const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc');
+  const [sortKey, setSortKey] = useState<SortKey>('id');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   // modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [form, setForm] = useState<{ name: string; price: string; active: boolean }>({ name:'', price:'', active:true });
+  const [form, setForm] = useState<{ name: string; price: string; active: boolean }>({ name: '', price: '', active: true });
   const modalBusy = pending.has(-1); // ใช้ -1 เป็น flag ตอนบันทึกโมดอล
 
+  // ---------- utils ----------
   function setPendingOn(id: number, on: boolean) {
     setPending(prev => {
       const next = new Set(prev);
@@ -34,6 +40,7 @@ export default function ProductsPage() {
     });
   }
 
+  // ---------- load ----------
   async function load() {
     setLoading(true);
     try {
@@ -44,47 +51,74 @@ export default function ProductsPage() {
       setLoading(false);
     }
   }
-  useEffect(() => { load(); }, []);
 
-  // toggle active
+  // init + restore persisted list state
+  useEffect(() => {
+    load();
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s.q) setQ(String(s.q));
+        if (s.sortKey) setSortKey(s.sortKey);
+        if (s.sortDir) setSortDir(s.sortDir);
+      }
+    } catch {}
+  }, []);
+
+  // persist list state
+  useEffect(() => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ q, sortKey, sortDir })); } catch {}
+  }, [q, sortKey, sortDir]);
+
+  // ---------- toggle active ----------
   async function toggleActive(p: Product) {
     const current = p.active ?? true;
     const next = !current;
+    // optimistic
     setProducts(prev => prev.map(x => (x.id === p.id ? { ...x, active: next } : x)));
     setPendingOn(p.id, true);
     try {
       const res = await fetch(`/api/products/${p.id}`, {
-        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ active: next }),
       });
       if (!res.ok) throw new Error('Toggle failed');
-      push({ type:'success', message:`${p.name} -> ${next?'Active':'Inactive'}` });
+      push({ type: 'success', message: `${p.name} → ${next ? 'Active' : 'Inactive'}` });
     } catch {
+      // revert
       setProducts(prev => prev.map(x => (x.id === p.id ? { ...x, active: current } : x)));
-      push({ type:'error', message:'Toggle failed' });
+      push({ type: 'error', message: 'Toggle failed' });
     } finally {
       setPendingOn(p.id, false);
     }
   }
 
-  // open modal (add / edit)
+  // ---------- modal open (add / edit) ----------
   function openAdd() {
     setEditing(null);
-    setForm({ name:'', price:'', active:true });
+    setForm({ name: '', price: '', active: true });
     setModalOpen(true);
+    // focus name เมื่อเปิด
+    setTimeout(() => nameRef.current?.focus(), 0);
   }
   function openEdit(p: Product) {
     setEditing(p);
-    setForm({ name:p.name, price:String(p.price), active: p.active ?? true });
+    setForm({ name: p.name, price: String(p.price), active: p.active ?? true });
     setModalOpen(true);
+    setTimeout(() => nameRef.current?.focus(), 0);
   }
 
-  // save modal
+  // ---------- modal save ----------
   async function submitModal() {
+    if (modalBusy) return;
     const name = form.name.trim();
-    const priceNum = Number(form.price);
+    // sanitize ราคา: อนุญาตตัวเลขและจุดเดียว
+    const cleanPrice = form.price.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+    const priceNum = Number(cleanPrice);
     if (!name || !Number.isFinite(priceNum) || priceNum <= 0) {
-      push({ type:'error', message:'กรอกชื่อและราคาให้ถูกต้อง' });
+      push({ type: 'error', message: 'กรอกชื่อและราคาให้ถูกต้อง' });
       return;
     }
     setPendingOn(-1, true);
@@ -92,53 +126,93 @@ export default function ProductsPage() {
       if (editing) {
         // update
         const res = await fetch(`/api/products/${editing.id}`, {
-          method:'PATCH', headers:{'content-type':'application/json'},
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ name, price: priceNum, active: form.active }),
         });
-        const data = await res.json().catch(()=> ({}));
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || 'Update failed');
-        push({ type:'success', message:'อัปเดตเมนูสำเร็จ' });
+        push({ type: 'success', message: 'อัปเดตเมนูสำเร็จ' });
       } else {
         // create
         const res = await fetch('/api/products', {
-          method:'POST', headers:{'content-type':'application/json'},
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ name, price: priceNum }),
         });
-        const data = await res.json().catch(()=> ({}));
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || 'Create failed');
-        push({ type:'success', message:'เพิ่มเมนูสำเร็จ' });
+        push({ type: 'success', message: 'เพิ่มเมนูสำเร็จ' });
       }
       await load();
       setModalOpen(false);
-    } catch (e:any) {
-      push({ type:'error', message: e?.message || 'Save failed' });
+    } catch (e: any) {
+      push({ type: 'error', message: e?.message || 'Save failed' });
     } finally {
       setPendingOn(-1, false);
     }
   }
 
-  // search + sort view
+  // ---------- search debounce ----------
+  const [qDebounced, setQDebounced] = useState(q);
+  useEffect(() => {
+    const t = setTimeout(() => setQDebounced(q.trim().toLowerCase()), 180);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // ---------- search + sort view ----------
   const view = useMemo(() => {
     const f = products.filter(p => {
-      if (!q.trim()) return true;
-      const s = q.toLowerCase();
-      return [p.id, p.name, p.price, p.active?'active':'inactive'].join(' ').toLowerCase().includes(s);
+      if (!qDebounced) return true;
+      const s = [p.id, p.name, p.price, (p.active ?? true) ? 'active' : 'inactive'].join(' ').toLowerCase();
+      return s.includes(qDebounced);
     });
     const sign = sortDir === 'asc' ? 1 : -1;
-    f.sort((a,b) => {
-      const va = sortKey==='name' ? a.name.toLowerCase() : sortKey==='price' ? a.price : sortKey==='active' ? Number(a.active??true) : a.id;
-      const vb = sortKey==='name' ? b.name.toLowerCase() : sortKey==='price' ? b.price : sortKey==='active' ? Number(b.active??true) : b.id;
+    f.sort((a, b) => {
+      const va =
+        sortKey === 'name' ? a.name.toLowerCase()
+        : sortKey === 'price' ? a.price
+        : sortKey === 'active' ? Number(a.active ?? true)
+        : a.id;
+      const vb =
+        sortKey === 'name' ? b.name.toLowerCase()
+        : sortKey === 'price' ? b.price
+        : sortKey === 'active' ? Number(b.active ?? true)
+        : b.id;
       if (va < vb) return -1 * sign;
-      if (va > vb) return  1 * sign;
+      if (va > vb) return 1 * sign;
       return 0;
     });
     return f;
-  }, [products, q, sortKey, sortDir]);
+  }, [products, qDebounced, sortKey, sortDir]);
 
-  function toggleSort(k: typeof sortKey) {
-    setSortKey(k);
-    setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
+  function toggleSort(k: SortKey) {
+    setSortKey(prev => (prev === k ? prev : k));
+    setSortDir(prev => (sortKey === k ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
   }
+
+  // ---------- accessibility helpers ----------
+  const sortLabel: Record<SortKey, string> = {
+    id: 'ID',
+    name: 'Name',
+    price: 'Price',
+    active: 'Active',
+  };
+  function ariaSortFor(k: SortKey): 'ascending' | 'descending' | 'none' {
+    return sortKey === k ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
+  }
+
+  // ---------- modal key handlers ----------
+  const nameRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') { e.preventDefault(); submitModal(); }
+      if (e.key === 'Escape') { e.preventDefault(); setModalOpen(false); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [modalOpen, form, editing, modalBusy]);
 
   return (
     <main className="min-h-screen bg-[var(--surface-muted)] p-6">
@@ -153,7 +227,7 @@ export default function ProductsPage() {
           <div className="flex items-center gap-2">
             <input
               value={q}
-              onChange={(e)=> setQ(e.target.value)}
+              onChange={(e) => setQ(e.target.value)}
               placeholder="Search…"
               className="px-3 py-2 rounded-lg border bg-white w-56"
             />
@@ -167,8 +241,10 @@ export default function ProductsPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-gray-600">
-            <Loader2 className="w-5 h-5 animate-spin" /> กำลังโหลดสินค้า…
+          <div className="grid gap-2">
+            <div className="h-10 bg-gray-100 rounded animate-pulse" />
+            <div className="h-10 bg-gray-100 rounded animate-pulse" />
+            <div className="h-10 bg-gray-100 rounded animate-pulse" />
           </div>
         ) : view.length === 0 ? (
           <div className="p-10 text-center text-gray-600">ไม่พบสินค้า</div>
@@ -177,10 +253,26 @@ export default function ProductsPage() {
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 text-gray-700">
                 <tr>
-                  <th className="px-3 py-2 text-left cursor-pointer" onClick={()=>toggleSort('id')}>ID</th>
-                  <th className="px-3 py-2 text-left cursor-pointer" onClick={()=>toggleSort('name')}>Name</th>
-                  <th className="px-3 py-2 text-right cursor-pointer" onClick={()=>toggleSort('price')}>Price</th>
-                  <th className="px-3 py-2 text-center cursor-pointer" onClick={()=>toggleSort('active')}>Active</th>
+                  {(['id','name','price','active'] as SortKey[]).map(k => (
+                    <th
+                      key={k}
+                      scope="col"
+                      role="columnheader"
+                      aria-sort={ariaSortFor(k)}
+                      className={`px-3 py-2 ${k==='price' ? 'text-right' : k==='active' ? 'text-center' : 'text-left'} cursor-pointer select-none`}
+                      onClick={() => toggleSort(k)}
+                      title={`Sort by ${sortLabel[k]}`}
+                    >
+                      <div className={`inline-flex items-center gap-1 ${sortKey===k ? 'font-medium' : ''}`}>
+                        {sortLabel[k]}
+                        {sortKey === k ? (
+                          sortDir === 'asc'
+                            ? <ArrowUpNarrowWide className="w-3.5 h-3.5" />
+                            : <ArrowDownWideNarrow className="w-3.5 h-3.5" />
+                        ) : null}
+                      </div>
+                    </th>
+                  ))}
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
@@ -192,12 +284,16 @@ export default function ProductsPage() {
                     <tr key={p.id} className="border-t hover:bg-gray-50 transition">
                       <td className="px-3 py-2">{p.id}</td>
                       <td className="px-3 py-2">{p.name}</td>
-                      <td className="px-3 py-2 text-right">{p.price.toLocaleString('en-US')}</td>
+                      <td className="px-3 py-2 text-right">{p.price.toLocaleString('en-US', { minimumFractionDigits: 0 })}</td>
                       <td className="px-3 py-2 text-center">
                         <label className={`inline-flex items-center ${isPending ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                           <input
-                            type="checkbox" className="sr-only peer"
-                            checked={!!isActive} onChange={() => toggleActive(p)} disabled={isPending}
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={!!isActive}
+                            onChange={() => toggleActive(p)}
+                            disabled={isPending}
+                            aria-label={`Toggle ${p.name}`}
                           />
                           <div className="
                             relative w-11 h-6 rounded-full bg-gray-200 transition
@@ -214,7 +310,7 @@ export default function ProductsPage() {
                       </td>
                       <td className="px-3 py-2 text-right">
                         <button
-                          onClick={()=>openEdit(p)}
+                          onClick={() => openEdit(p)}
                           className="px-2 py-1 rounded border hover:bg-gray-100 inline-flex items-center gap-1"
                         >
                           <Pencil className="w-4 h-4" /> Edit
@@ -233,10 +329,10 @@ export default function ProductsPage() {
       <Modal
         open={modalOpen}
         title={editing ? 'Edit Product' : 'Add Product'}
-        onClose={()=> setModalOpen(false)}
+        onClose={() => setModalOpen(false)}
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={()=> setModalOpen(false)} className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 inline-flex items-center gap-1">
+            <button onClick={() => setModalOpen(false)} className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 inline-flex items-center gap-1">
               <X className="w-4 h-4" /> Cancel
             </button>
             <button
@@ -254,8 +350,9 @@ export default function ProductsPage() {
           <div className="col-span-2">
             <label className="block text-sm text-gray-600 mb-1">Name</label>
             <input
+              ref={nameRef}
               value={form.name}
-              onChange={(e)=> setForm(s=>({...s, name:e.target.value}))}
+              onChange={(e) => setForm(s => ({ ...s, name: e.target.value }))}
               className="w-full rounded-lg border px-3 py-2"
               placeholder="เช่น Chocolate Chunk"
             />
@@ -264,7 +361,11 @@ export default function ProductsPage() {
             <label className="block text-sm text-gray-600 mb-1">Price</label>
             <input
               value={form.price}
-              onChange={(e)=> setForm(s=>({...s, price:e.target.value}))}
+              onChange={(e) => {
+                // อนุญาตเฉพาะเลขและจุดเดียว
+                const v = e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+                setForm(s => ({ ...s, price: v }));
+              }}
               inputMode="decimal"
               className="w-full rounded-lg border px-3 py-2"
               placeholder="เช่น 135"
@@ -275,7 +376,7 @@ export default function ProductsPage() {
               <input
                 type="checkbox"
                 checked={form.active}
-                onChange={(e)=> setForm(s=>({...s, active:e.target.checked}))}
+                onChange={(e) => setForm(s => ({ ...s, active: e.target.checked }))}
               />
               <span>Active</span>
             </label>

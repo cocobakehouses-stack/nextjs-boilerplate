@@ -1,48 +1,48 @@
-// app/components/ui/Button.tsx
 'use client';
-import { Loader2 } from 'lucide-react';
-import { ComponentProps, forwardRef } from 'react';
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
+
+type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg';
 
-const base =
-  'inline-flex items-center justify-center rounded-lg font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] disabled:opacity-40 disabled:pointer-events-none';
-const sizes: Record<Size,string> = {
-  sm: 'h-8 px-3 text-sm',
-  md: 'h-10 px-4 text-sm',
-  lg: 'h-11 px-5 text-base',
-};
-const variants: Record<Variant,string> = {
-  primary: 'bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90',
-  secondary: 'bg-white border hover:bg-gray-50',
-  ghost: 'hover:bg-gray-100',
-  danger: 'bg-red-600 text-white hover:bg-red-600/90',
-};
+function cn(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(' ');
+}
 
-type Props = ComponentProps<'button'> & {
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;
   size?: Size;
-  loading?: boolean;
-  iconLeft?: React.ReactNode;
-  iconRight?: React.ReactNode;
+  children?: ReactNode;
+  className?: string;
 };
 
-const Button = forwardRef<HTMLButtonElement, Props>(function Button(
-  { className='', variant='primary', size='md', loading=false, iconLeft, iconRight, children, ...rest },
-  ref
-) {
+export default function Button({
+  variant = 'primary',
+  size = 'md',
+  className,
+  children,
+  ...rest
+}: ButtonProps) {
+  const base = 'inline-flex items-center justify-center rounded-lg font-medium transition';
+  const sizes: Record<Size, string> = {
+    sm: 'px-2 py-1 text-sm',
+    md: 'px-3 py-2 text-sm',
+    lg: 'px-4 py-2 text-base',
+  };
+  const variants: Record<Variant, string> = {
+    primary: 'bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40',
+    secondary: 'bg-gray-900 text-white hover:opacity-90 disabled:opacity-40',
+    outline: 'border bg-white hover:bg-gray-50 disabled:opacity-40',
+    ghost: 'hover:bg-gray-100',
+    danger: 'bg-red-600 text-white hover:opacity-90 disabled:opacity-40',
+  };
+
   return (
     <button
-      ref={ref}
-      className={`${base} ${sizes[size]} ${variants[variant]} ${className}`}
+      className={cn(base, sizes[size], variants[variant], className)}
       {...rest}
     >
-      {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : iconLeft}
       {children}
-      {iconRight}
     </button>
   );
-});
-
-export default Button;
+}

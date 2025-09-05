@@ -55,6 +55,18 @@ function reduceTotals(rows: OrderRow[]) {
   return { count, totalQty, totalAmount, freebiesAmount, byPayment };
 }
 
+function productSummary(rows: OrderRow[]) {
+  const map: Record<string, { qty: number; amount: number }> = {};
+  for (const r of rows) {
+    for (const i of r.items) {
+      if (!map[i.name]) map[i.name] = { qty: 0, amount: 0 };
+      map[i.name].qty += i.qty || 0;
+      map[i.name].amount += (i.price || 0) * (i.qty || 0);
+    }
+  }
+  return map;
+}
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -106,7 +118,7 @@ export async function GET(req: Request) {
         formatItems(r.freebies || []),
       ]);
 
-    // --- summary lines (บน/ล่าง) ---
+    // --- summary top ---
     const summaryTop = [
       ['SUMMARY (Top)'],
       [`Bills: ${totals.count}`],
@@ -122,6 +134,7 @@ export async function GET(req: Request) {
       [''], // ช่องว่าง
     ];
 
+    // --- summary bottom ---
     const summaryBottom = [
       [''],
       ['SUMMARY (Bottom)'],
@@ -137,11 +150,45 @@ export async function GET(req: Request) {
       ],
     ];
 
+    // --- product summary per location ---
+    let productLines: string[] = [];
+    if (rows.length > 0) {
+      // group by location
+      const grouped: Record<string, OrderRow[]> = {};
+      for (const r of rows) {
+        if (!grouped[r.location]) grouped[r.location] = [];
+        grouped[r.location].push(r);
+      }
+
+      productLines.push('');
+      productLines.push('PRODUCT SUMMARY');
+
+      for (const [loc, rs] of Object.entries(grouped)) {
+        productLines.push('');
+        productLines.push(`Location: ${loc}`);
+        productLines.push('Product,Qty,Amount');
+        const map = productSummary(rs);
+        for (const [name, v] of Object.entries(map)) {
+          productLines.push([csvEscape(name), v.qty, v.amount.toFixed(2)].join(','));
+        }
+      }
+
+      // all locations
+      productLines.push('');
+      productLines.push('All Locations');
+      productLines.push('Product,Qty,Amount');
+      const allMap = productSummary(rows);
+      for (const [name, v] of Object.entries(allMap)) {
+        productLines.push([csvEscape(name), v.qty, v.amount.toFixed(2)].join(','));
+      }
+    }
+
     const lines = [
       ...summaryTop.map((row) => row.map(csvEscape).join(',')),
       header.map(csvEscape).join(','),
       ...body.map((row) => row.map(csvEscape).join(',')),
       ...summaryBottom.map((row) => row.map(csvEscape).join(',')),
+      ...productLines,
     ];
 
     const csv = '\uFEFF' + lines.join('\n');

@@ -175,12 +175,14 @@ export default function ReportsPage() {
             </button>
 
             <a
-              href={csvHref}
-              download={filenameCSV}
-              onClick={(e) => { if (csvHref === '#') e.preventDefault(); }}
-              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
-              aria-disabled={!locId || !rangeStart || !rangeEnd}
-            >
+    href={
+      !locId || !rangeStart || !rangeEnd
+        ? '#'
+        : `/api/reports/csv?location=${encodeURIComponent(locId)}&start=${encodeURIComponent(rangeStart)}&end=${encodeURIComponent(rangeEnd)}`
+    }
+    onClick={(e) => { if (!locId || !rangeStart || !rangeEnd) e.preventDefault(); }}
+    className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
+  >
               Export CSV
             </a>
           </div>

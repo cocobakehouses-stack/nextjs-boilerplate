@@ -30,8 +30,29 @@ function csvEscape(v: any): string {
 }
 
 function formatItems(list: Line[] = []): string {
-  // ex: "Brownie x2@65; Cookie x1@135"
   return list.map(i => `${i.name} x${i.qty}@${i.price}`).join('; ');
+}
+
+function reduceTotals(rows: OrderRow[]) {
+  let count = rows.length;
+  let totalQty = 0;
+  let totalAmount = 0;
+  let freebiesAmount = 0;
+  const byPayment: Record<string, number> = {};
+
+  for (const r of rows) {
+    const qty = r.items.reduce((s, i) => s + (i.qty || 0), 0);
+    const freeAmt = (r.freebies || []).reduce(
+      (s, f) => s + (Number(f.qty) || 0) * (Number(f.price) || 0),
+      0
+    );
+    totalQty += qty;
+    totalAmount += Number(r.total || 0);
+    freebiesAmount += freeAmt;
+    const key = r.payment || '-';
+    byPayment[key] = (byPayment[key] || 0) + Number(r.total || 0);
+  }
+  return { count, totalQty, totalAmount, freebiesAmount, byPayment };
 }
 
 export async function GET(req: Request) {
@@ -45,15 +66,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Missing location/start/end' }, { status: 400 });
     }
 
-    // ดึงข้อมูลจาก /api/reports (รีไซเคิลของเดิม)
     const qs = new URLSearchParams({ location, start, end });
     const base = `${url.origin}`;
     const res = await fetch(`${base}/api/reports?${qs.toString()}`, { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
-
     const rows: OrderRow[] = Array.isArray(data?.rows) ? data.rows : [];
 
-    // Header
+    const totals = reduceTotals(rows);
+
     const header = [
       'BillNo',
       'Date',
@@ -69,9 +89,7 @@ export async function GET(req: Request) {
       'Freebies',
     ];
 
-    // Rows
     const body = rows
-      // เรียงบิลจากมาก → น้อยตาม requirement
       .sort((a, b) => Number(b.billNo) - Number(a.billNo))
       .map((r) => [
         r.billNo ?? '',
@@ -88,14 +106,47 @@ export async function GET(req: Request) {
         formatItems(r.freebies || []),
       ]);
 
-    // สร้าง CSV (ใส่ UTF-8 BOM ให้ Excel/Google Sheets อ่านภาษาไทยถูก)
+    // --- summary lines (บน/ล่าง) ---
+    const summaryTop = [
+      ['SUMMARY (Top)'],
+      [`Bills: ${totals.count}`],
+      [`Total Qty: ${totals.totalQty}`],
+      [`Total Amount: ${totals.totalAmount.toFixed(2)}`],
+      [`Freebies Amount: ${totals.freebiesAmount.toFixed(2)}`],
+      [
+        'By Payment: ' +
+          Object.entries(totals.byPayment)
+            .map(([k, v]) => `${k}: ${v.toFixed(2)}`)
+            .join(' | '),
+      ],
+      [''], // ช่องว่าง
+    ];
+
+    const summaryBottom = [
+      [''],
+      ['SUMMARY (Bottom)'],
+      [`Bills: ${totals.count}`],
+      [`Total Qty: ${totals.totalQty}`],
+      [`Total Amount: ${totals.totalAmount.toFixed(2)}`],
+      [`Freebies Amount: ${totals.freebiesAmount.toFixed(2)}`],
+      [
+        'By Payment: ' +
+          Object.entries(totals.byPayment)
+            .map(([k, v]) => `${k}: ${v.toFixed(2)}`)
+            .join(' | '),
+      ],
+    ];
+
     const lines = [
+      ...summaryTop.map((row) => row.map(csvEscape).join(',')),
       header.map(csvEscape).join(','),
       ...body.map((row) => row.map(csvEscape).join(',')),
+      ...summaryBottom.map((row) => row.map(csvEscape).join(',')),
     ];
-    const csv = '\uFEFF' + lines.join('\n');
 
+    const csv = '\uFEFF' + lines.join('\n');
     const filename = `reports_${location}_${start}_${end}.csv`;
+
     return new NextResponse(csv, {
       status: 200,
       headers: {

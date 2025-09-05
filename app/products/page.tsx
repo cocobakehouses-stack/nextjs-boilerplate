@@ -3,30 +3,32 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Package, Loader2, Plus, Pencil, Save, X, RotateCw,
-  ArrowUpNarrowWide, ArrowDownWideNarrow, Minus, Plus as PlusIcon, Database
+  Package, Loader2, Plus, Pencil, Save, X,
+  ArrowUpNarrowWide, ArrowDownWideNarrow,
+  Boxes, UploadCloud
 } from 'lucide-react';
 import HeaderMenu from '../components/HeaderMenu';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
-import LocationPicker from '../components/LocationPicker'; // ใช้กับแท็บ Stock
 
 type Product = { id: number; name: string; price: number; active?: boolean };
 
+// ---- Stock Types ----
+type LocationRow = { id: string; label: string };
+type StockRow = { productId: number; name: string; price: number; qty: number };
+
 type SortKey = 'id' | 'name' | 'price' | 'active';
 type SortDir = 'asc' | 'desc';
-
-type StockRow = { productId: number; name: string; qty: number };
 
 const LS_KEY = 'products_list_state_v1';
 
 export default function ProductsPage() {
   const { push } = useToast();
 
-  // -------------------- Shared / Tabs --------------------
+  // ------- tabs -------
   const [tab, setTab] = useState<'products' | 'stock'>('products');
 
-  // -------------------- PRODUCTS TAB --------------------
+  // ------- products -------
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<Set<number>>(new Set()); // ids ที่กำลังอัปเดต
@@ -42,6 +44,16 @@ export default function ProductsPage() {
   const [form, setForm] = useState<{ name: string; price: string; active: boolean }>({ name: '', price: '', active: true });
   const modalBusy = pending.has(-1); // ใช้ -1 เป็น flag ตอนบันทึกโมดอล
 
+  // ------- stock panel -------
+  const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [stockLoc, setStockLoc] = useState<string>(''); // ต้องเลือกสาขา
+  const [stockRows, setStockRows] = useState<StockRow[]>([]);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockDirty, setStockDirty] = useState(false); // มีการแก้ไขค้างอยู่หรือไม่
+  const [stockQ, setStockQ] = useState('');
+  const [stockPending, setStockPending] = useState(false);
+
+  // ---------- utils ----------
   function setPendingOn(id: number, on: boolean) {
     setPending(prev => {
       const next = new Set(prev);
@@ -50,23 +62,35 @@ export default function ProductsPage() {
     });
   }
 
+  // ---------- load products ----------
   async function loadProducts() {
     setLoading(true);
     try {
       const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       setProducts(data?.products || []);
-    } catch {
-      push({ type: 'error', message: 'โหลดสินค้าไม่สำเร็จ' });
-      setProducts([]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // ---------- load locations (for stock) ----------
+  async function loadLocations() {
+    try {
+      const res = await fetch('/api/locations', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      const list: LocationRow[] = data?.locations || [];
+      setLocations(list);
+      if (!stockLoc && list.length > 0) setStockLoc(list[0].id);
+    } catch {
+      setLocations([]);
     }
   }
 
   // init + restore persisted list state
   useEffect(() => {
     loadProducts();
+    loadLocations();
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (raw) {
@@ -83,9 +107,11 @@ export default function ProductsPage() {
     try { localStorage.setItem(LS_KEY, JSON.stringify({ q, sortKey, sortDir })); } catch {}
   }, [q, sortKey, sortDir]);
 
+  // ---------- toggle active ----------
   async function toggleActive(p: Product) {
     const current = p.active ?? true;
     const next = !current;
+    // optimistic
     setProducts(prev => prev.map(x => (x.id === p.id ? { ...x, active: next } : x)));
     setPendingOn(p.id, true);
     try {
@@ -94,17 +120,19 @@ export default function ProductsPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ active: next }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Toggle failed');
+      if (!res.ok) throw new Error('Toggle failed');
       push({ type: 'success', message: `${p.name} → ${next ? 'Active' : 'Inactive'}` });
-    } catch (e: any) {
+    } catch {
+      // revert
       setProducts(prev => prev.map(x => (x.id === p.id ? { ...x, active: current } : x)));
-      push({ type: 'error', message: e?.message || 'Toggle failed' });
+      push({ type: 'error', message: 'Toggle failed' });
     } finally {
       setPendingOn(p.id, false);
     }
   }
 
+  // ---------- modal open (add / edit) ----------
+  const nameRef = useRef<HTMLInputElement | null>(null);
   function openAdd() {
     setEditing(null);
     setForm({ name: '', price: '', active: true });
@@ -118,9 +146,11 @@ export default function ProductsPage() {
     setTimeout(() => nameRef.current?.focus(), 0);
   }
 
+  // ---------- modal save ----------
   async function submitModal() {
     if (modalBusy) return;
     const name = form.name.trim();
+    // sanitize ราคา: อนุญาตตัวเลขและจุดเดียว
     const cleanPrice = form.price.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
     const priceNum = Number(cleanPrice);
     if (!name || !Number.isFinite(priceNum) || priceNum <= 0) {
@@ -130,6 +160,7 @@ export default function ProductsPage() {
     setPendingOn(-1, true);
     try {
       if (editing) {
+        // update
         const res = await fetch(`/api/products/${editing.id}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
@@ -139,6 +170,7 @@ export default function ProductsPage() {
         if (!res.ok) throw new Error(data?.error || 'Update failed');
         push({ type: 'success', message: 'อัปเดตเมนูสำเร็จ' });
       } else {
+        // create
         const res = await fetch('/api/products', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -157,15 +189,15 @@ export default function ProductsPage() {
     }
   }
 
-  // search debounce
+  // ---------- search debounce (products) ----------
   const [qDebounced, setQDebounced] = useState(q);
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(q.trim().toLowerCase()), 180);
     return () => clearTimeout(t);
   }, [q]);
 
-  // search + sort view
-  const view = useMemo(() => {
+  // ---------- search + sort view (products) ----------
+  const viewProducts = useMemo(() => {
     const f = products.filter(p => {
       if (!qDebounced) return true;
       const s = [p.id, p.name, p.price, (p.active ?? true) ? 'active' : 'inactive'].join(' ').toLowerCase();
@@ -195,12 +227,18 @@ export default function ProductsPage() {
     setSortDir(prev => (sortKey === k ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
   }
 
-  const sortLabel: Record<SortKey, string> = { id: 'ID', name: 'Name', price: 'Price', active: 'Active' };
+  // ---------- accessibility helpers ----------
+  const sortLabel: Record<SortKey, string> = {
+    id: 'ID',
+    name: 'Name',
+    price: 'Price',
+    active: 'Active',
+  };
   function ariaSortFor(k: SortKey): 'ascending' | 'descending' | 'none' {
     return sortKey === k ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
   }
 
-  const nameRef = useRef<HTMLInputElement | null>(null);
+  // ---------- modal key handlers ----------
   useEffect(() => {
     if (!modalOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -211,106 +249,70 @@ export default function ProductsPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [modalOpen, form, editing, modalBusy]);
 
-  // -------------------- STOCK TAB --------------------
-  const [locId, setLocId] = useState<string | null>(null);
-  const [stock, setStock] = useState<StockRow[]>([]);
-  const [loadingStock, setLoadingStock] = useState(false);
-  const [pendingStock, setPendingStock] = useState<Set<number>>(new Set()); // productId กำลังอัปเดต
-
-  async function loadStock(location: string) {
-    setLoadingStock(true);
-    setStock([]);
+  // =========================
+  //        STOCK PANEL
+  // =========================
+  async function loadStock() {
+    if (!stockLoc) return;
+    setStockLoading(true);
+    setStockDirty(false);
     try {
-      // รูปแบบ API ที่คุยกัน: /api/stock?location=XYZ
-      // รองรับ fallback ถ้า backend ยังไม่พร้อม
-      const res = await fetch(`/api/stock?location=${encodeURIComponent(location)}`, { cache: 'no-store' });
+      // สมมติ endpoint: GET /api/stock?location=LOC
+      const res = await fetch(`/api/stock?location=${encodeURIComponent(stockLoc)}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
-
-      let items: StockRow[] = [];
-      if (Array.isArray(data?.items)) {
-        // คาดว่าเป็น [{productId, name?, qty}]
-        items = data.items.map((it: any) => ({
-          productId: Number(it.productId),
-          name: it.name ?? (products.find(p => p.id === Number(it.productId))?.name || `#${it.productId}`),
-          qty: Number(it.qty) || 0,
-        }));
-      } else {
-        // fallback: ไม่มีสต๊อก → สร้างจาก products ทั้งหมดด้วย qty = 0
-        items = products.map(p => ({ productId: p.id, name: p.name, qty: 0 }));
-      }
-      // sort ตามชื่อเพื่ออ่านง่าย
-      items.sort((a, b) => a.name.localeCompare(b.name, 'en'));
-      setStock(items);
+      const list: StockRow[] = data?.stock || [];
+      setStockRows(list);
     } catch {
-      push({ type: 'error', message: 'โหลดสต๊อกไม่สำเร็จ' });
-      setStock([]);
+      setStockRows([]);
     } finally {
-      setLoadingStock(false);
+      setStockLoading(false);
     }
   }
+  useEffect(() => { if (tab === 'stock' && stockLoc) loadStock(); }, [tab, stockLoc]);
 
-  // เมื่อเลือก location แล้วค่อยโหลดสต๊อก
-  useEffect(() => {
-    if (!locId) return;
-    loadStock(locId);
-  }, [locId, products]); // ถ้ารายการสินค้าเปลี่ยน ให้ refresh สต๊อกด้วย (ชื่อจะตรง)
+  const viewStock = useMemo(() => {
+    const s = stockQ.trim().toLowerCase();
+    if (!s) return stockRows;
+    return stockRows.filter(r => [r.productId, r.name, r.price, r.qty].join(' ').toLowerCase().includes(s));
+  }, [stockRows, stockQ]);
 
-  function setStockPendingOn(productId: number, on: boolean) {
-    setPendingStock(prev => {
-      const next = new Set(prev);
-      if (on) next.add(productId); else next.delete(productId);
-      return next;
-    });
+  function updateQtyLocal(productId: number, nextQty: number) {
+    setStockRows(prev => prev.map(r => (r.productId === productId ? { ...r, qty: nextQty } : r)));
+    setStockDirty(true);
   }
 
-  async function changeStockQty(productId: number, delta: number) {
-    if (!locId) return;
-    setStockPendingOn(productId, true);
-    // optimistic
-    setStock(prev => prev.map(r => r.productId === productId ? { ...r, qty: Math.max(0, r.qty + delta) } : r));
+  async function saveStock() {
+    if (!stockLoc) return;
+    setStockPending(true);
     try {
-      const res = await fetch('/api/stock', {
+      // สมมติ endpoint: PATCH /api/stock/bulk  { location, updates: [{productId, qty}] }
+      const updates = stockRows.map(r => ({ productId: r.productId, qty: r.qty }));
+      const res = await fetch('/api/stock/bulk', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ location: locId, productId, delta }),
+        body: JSON.stringify({ location: stockLoc, updates }),
       });
-      if (!res.ok) throw new Error('Update stock failed');
-      // success → ไม่ทำอะไรเพิ่ม (เชื่อค่า optimistic)
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Save stock failed');
+      push({ type: 'success', message: 'บันทึกสต๊อกสำเร็จ' });
+      setStockDirty(false);
+      await loadStock();
     } catch (e: any) {
-      // revert
-      setStock(prev => prev.map(r => r.productId === productId ? { ...r, qty: Math.max(0, r.qty - delta) } : r));
-      push({ type: 'error', message: e?.message || 'อัปเดตสต๊อกไม่สำเร็จ' });
+      push({ type: 'error', message: e?.message || 'Save stock failed' });
     } finally {
-      setStockPendingOn(productId, false);
+      setStockPending(false);
     }
   }
 
-  async function setStockQty(productId: number, qty: number) {
-    if (!locId) return;
-    const prevRow = stock.find(r => r.productId === productId);
-    const prev = prevRow?.qty ?? 0;
-    if (qty === prev) return;
+  const stockCsvHref = useMemo(() => {
+    if (!stockLoc) return '#';
+    // สมมติ endpoint: /api/stock/csv?location=LOC
+    return `/api/stock/csv?location=${encodeURIComponent(stockLoc)}`;
+  }, [stockLoc]);
 
-    setStockPendingOn(productId, true);
-    // optimistic
-    setStock(prevList => prevList.map(r => r.productId === productId ? { ...r, qty: Math.max(0, qty) } : r));
-    try {
-      const res = await fetch('/api/stock', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ location: locId, productId, qty }),
-      });
-      if (!res.ok) throw new Error('Set stock failed');
-    } catch (e: any) {
-      // revert
-      setStock(prevList => prevList.map(r => r.productId === productId ? { ...r, qty: prev } : r));
-      push({ type: 'error', message: e?.message || 'ตั้งค่าสต๊อกไม่สำเร็จ' });
-    } finally {
-      setStockPendingOn(productId, false);
-    }
-  }
-
-  // -------------------- RENDER --------------------
+  // =========================
+  //          RENDER
+  // =========================
   return (
     <main className="min-h-screen bg-[var(--surface-muted)]">
       {/* Sticky header */}
@@ -321,30 +323,32 @@ export default function ProductsPage() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-6">
-        {/* Tabs */}
-        <div className="mb-4 flex items-center gap-2">
-          <button
-            onClick={() => setTab('products')}
-            className={`px-3 py-2 rounded-lg border ${tab==='products' ? 'bg-[var(--brand)] text-[var(--brand-contrast)]' : 'bg-white hover:bg-gray-50'}`}
-          >
-            <span className="inline-flex items-center gap-1"><Package className="w-4 h-4" /> Products</span>
-          </button>
-          <button
-            onClick={() => setTab('stock')}
-            className={`px-3 py-2 rounded-lg border ${tab==='stock' ? 'bg-[var(--brand)] text-[var(--brand-contrast)]' : 'bg-white hover:bg-gray-50'}`}
-          >
-            <span className="inline-flex items-center gap-1"><Database className="w-4 h-4" /> Stock</span>
-          </button>
+        {/* Title + Tabs */}
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Package className="w-6 h-6 text-[var(--brand)]" />
+            Products & Stock
+          </h1>
+          <div className="inline-flex rounded-lg border overflow-hidden">
+            <button
+              className={`px-3 py-2 text-sm ${tab==='products' ? 'bg-[var(--brand)] text-[var(--brand-contrast)]' : 'bg-white hover:bg-gray-50'}`}
+              onClick={() => setTab('products')}
+            >
+              Products
+            </button>
+            <button
+              className={`px-3 py-2 text-sm ${tab==='stock' ? 'bg-[var(--brand)] text-[var(--brand-contrast)]' : 'bg-white hover:bg-gray-50'}`}
+              onClick={() => setTab('stock')}
+            >
+              Stock
+            </button>
+          </div>
         </div>
 
-        {/* ==================== TAB: PRODUCTS ==================== */}
+        {/* ================= PRODUCTS TAB ================= */}
         {tab === 'products' && (
           <div className="bg-white rounded-xl shadow p-6">
             <div className="flex items-center justify-between mb-6">
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <Package className="w-6 h-6 text-[var(--brand)]" />
-                Manage Products
-              </h1>
               <div className="flex items-center gap-2">
                 <input
                   value={q}
@@ -352,20 +356,13 @@ export default function ProductsPage() {
                   placeholder="Search…"
                   className="px-3 py-2 rounded-lg border bg-white w-56"
                 />
-                <button
-                  onClick={loadProducts}
-                  className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 inline-flex items-center gap-1"
-                  title="Reload"
-                >
-                  <RotateCw className="w-4 h-4" /> Reload
-                </button>
-                <button
-                  onClick={openAdd}
-                  className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 inline-flex items-center gap-1"
-                >
-                  <Plus className="w-4 h-4" /> Add Product
-                </button>
               </div>
+              <button
+                onClick={openAdd}
+                className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 inline-flex items-center gap-1"
+              >
+                <Plus className="w-4 h-4" /> Add Product
+              </button>
             </div>
 
             {loading ? (
@@ -374,7 +371,7 @@ export default function ProductsPage() {
                 <div className="h-10 bg-gray-100 rounded animate-pulse" />
                 <div className="h-10 bg-gray-100 rounded animate-pulse" />
               </div>
-            ) : view.length === 0 ? (
+            ) : viewProducts.length === 0 ? (
               <div className="p-10 text-center text-gray-600">ไม่พบสินค้า</div>
             ) : (
               <div className="overflow-auto rounded-xl border">
@@ -405,7 +402,7 @@ export default function ProductsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {view.map((p) => {
+                    {viewProducts.map((p) => {
                       const isActive = p.active ?? true;
                       const isPending = pending.has(p.id);
                       return (
@@ -454,99 +451,109 @@ export default function ProductsPage() {
           </div>
         )}
 
-        {/* ==================== TAB: STOCK ==================== */}
+        {/* ================= STOCK TAB ================= */}
         {tab === 'stock' && (
-          <div className="bg-white rounded-xl shadow p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Database className="w-5 h-5 text-[var(--brand)]" />
-                Stock by Location
-              </h2>
-              <div className="flex items-center gap-2">
-                <LocationPicker value={locId} onChange={(id) => setLocId(id)} includeAll={false} />
-                <button
-                  onClick={() => locId && loadStock(locId)}
-                  className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 inline-flex items-center gap-1"
-                  disabled={!locId}
-                  title="Reload stock"
+          <div className="bg-white rounded-xl shadow p-6 space-y-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Location</label>
+                <select
+                  className="rounded border px-3 py-2 bg-white"
+                  value={stockLoc}
+                  onChange={(e) => setStockLoc(e.target.value)}
                 >
-                  <RotateCw className="w-4 h-4" /> Reload
+                  {locations.length === 0 ? (
+                    <option>— ไม่มีสาขา —</option>
+                  ) : (
+                    locations.map(l => <option key={l.id} value={l.id}>{l.label} ({l.id})</option>)
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Search stock</label>
+                <input
+                  value={stockQ}
+                  onChange={(e) => setStockQ(e.target.value)}
+                  placeholder="ค้นหาด้วยชื่อ/ราคา/รหัส"
+                  className="px-3 py-2 rounded-lg border bg-white w-64"
+                />
+              </div>
+
+              <div className="ml-auto flex items-center gap-2">
+                <a
+                  href={stockLoc ? `/api/stock/csv?location=${encodeURIComponent(stockLoc)}` : '#'}
+                  onClick={(e) => { if (!stockLoc) e.preventDefault(); }}
+                  className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
+                  title="Export CSV"
+                >
+                  <UploadCloud className="w-4 h-4 inline mr-1" />
+                  Export CSV
+                </a>
+                <button
+                  onClick={saveStock}
+                  disabled={!stockDirty || stockPending || !stockLoc}
+                  className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40 inline-flex items-center gap-1"
+                >
+                  {stockPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Save All
+                </button>
+                <button
+                  onClick={loadStock}
+                  disabled={!stockLoc || stockLoading}
+                  className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40 inline-flex items-center gap-1"
+                >
+                  <Boxes className="w-4 h-4" /> Reload
                 </button>
               </div>
             </div>
 
-            {!locId ? (
-              <div className="p-10 text-center text-gray-600">เลือกสาขาก่อนค่ะ</div>
-            ) : loadingStock ? (
+            {(!stockLoc) ? (
+              <div className="text-gray-600">กรุณาเลือกสาขาก่อน</div>
+            ) : stockLoading ? (
               <div className="grid gap-2">
                 <div className="h-10 bg-gray-100 rounded animate-pulse" />
                 <div className="h-10 bg-gray-100 rounded animate-pulse" />
                 <div className="h-10 bg-gray-100 rounded animate-pulse" />
               </div>
-            ) : stock.length === 0 ? (
-              <div className="p-10 text-center text-gray-600">ไม่พบข้อมูลสต๊อกสำหรับสาขานี้</div>
+            ) : viewStock.length === 0 ? (
+              <div className="p-10 text-center text-gray-600">ยังไม่มีข้อมูลสต๊อก</div>
             ) : (
               <div className="overflow-auto rounded-xl border">
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 text-gray-700">
                     <tr>
+                      <th className="px-3 py-2 text-left">ID</th>
                       <th className="px-3 py-2 text-left">Product</th>
+                      <th className="px-3 py-2 text-right">Price</th>
                       <th className="px-3 py-2 text-right">Qty</th>
-                      <th className="px-3 py-2 text-right">Adjust</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {stock.map(row => {
-                      const pending = pendingStock.has(row.productId);
-                      return (
-                        <tr key={row.productId} className="border-t hover:bg-gray-50 transition">
-                          <td className="px-3 py-2">{row.name}</td>
-                          <td className="px-3 py-2 text-right">{row.qty}</td>
-                          <td className="px-3 py-2">
-                            <div className={`flex justify-end items-center gap-2 ${pending ? 'opacity-50 pointer-events-none' : ''}`}>
-                              <button
-                                onClick={() => changeStockQty(row.productId, -1)}
-                                className="px-2 py-1 rounded border hover:bg-gray-100 inline-flex items-center"
-                                aria-label="decrease"
-                              >
-                                <Minus className="w-4 h-4" />
-                              </button>
-                              <input
-                                type="number"
-                                min={0}
-                                className="w-20 rounded border px-2 py-1 text-right"
-                                defaultValue={row.qty}
-                                onBlur={(e) => {
-                                  const v = Math.max(0, Number(e.target.value) || 0);
-                                  if (v !== row.qty) setStockQty(row.productId, v);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    const v = Math.max(0, Number((e.target as HTMLInputElement).value) || 0);
-                                    if (v !== row.qty) setStockQty(row.productId, v);
-                                  }
-                                }}
-                              />
-                              <button
-                                onClick={() => changeStockQty(row.productId, +1)}
-                                className="px-2 py-1 rounded border hover:bg-gray-100 inline-flex items-center"
-                                aria-label="increase"
-                              >
-                                <PlusIcon className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {viewStock.map(r => (
+                      <tr key={r.productId} className="border-t hover:bg-gray-50 transition">
+                        <td className="px-3 py-2">{r.productId}</td>
+                        <td className="px-3 py-2">{r.name}</td>
+                        <td className="px-3 py-2 text-right">{r.price.toLocaleString('en-US')}</td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            className="w-24 text-right rounded border px-2 py-1"
+                            value={r.qty}
+                            onChange={(e) => updateQtyLocal(r.productId, Math.max(0, Number(e.target.value) || 0))}
+                          />
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             )}
 
-            <p className="text-xs text-gray-500 mt-3">
-              หมายเหตุ: ปุ่ม +/- ใช้ปรับสต๊อกแบบเร็ว (delta) ส่วนช่องตัวเลขจะตั้งค่าเป็นจำนวนใหม่ทันทีเมื่อกด Enter หรือออกจากช่อง
-            </p>
+            {/* Dirty indicator */}
+            {stockDirty && (
+              <div className="text-xs text-amber-600">มีการแก้ไขจำนวนที่ยังไม่บันทึก</div>
+            )}
           </div>
         )}
       </div>
@@ -588,6 +595,7 @@ export default function ProductsPage() {
             <input
               value={form.price}
               onChange={(e) => {
+                // อนุญาตเฉพาะเลขและจุดเดียว
                 const v = e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
                 setForm(s => ({ ...s, price: v }));
               }}

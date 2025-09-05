@@ -1,3 +1,4 @@
+// app/reports/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -111,15 +112,33 @@ export default function ReportsPage() {
   // ===== SORT BILL DESC =====
   const sortedRows = useMemo(() => [...rows].sort((a, b) => Number(b.billNo) - Number(a.billNo)), [rows]);
 
-  // ===== EXPORT CSV =====
-  const { csvHref, filenameCSV } = useMemo(() => {
+  // ===== EXPORT CSV (ทั้ง “เฉพาะ location ที่เลือก” และ “ALL”) =====
+  const csvLinks = useMemo(() => {
     if (!locId || !rangeStart || !rangeEnd) {
-      return { csvHref: '#', filenameCSV: '' };
+      return {
+        currentHref: '#',
+        currentName: '',
+        allHref: '#',
+        allName: '',
+        disabled: true,
+      };
     }
-    const qs = new URLSearchParams({ location: String(locId), start: rangeStart, end: rangeEnd });
-    const csv = `/api/reports/csv?${qs.toString()}`;
-    const fnBase = `reports_${locId}_${rangeStart}_${rangeEnd}`;
-    return { csvHref: csv, filenameCSV: `${fnBase}.csv` };
+    const qsCurrent = new URLSearchParams({ location: String(locId), start: rangeStart, end: rangeEnd });
+    const qsAll = new URLSearchParams({ location: 'ALL', start: rangeStart, end: rangeEnd });
+
+    const currentHref = `/api/reports/csv?${qsCurrent.toString()}`;
+    const allHref = `/api/reports/csv?${qsAll.toString()}`;
+
+    const baseCurrent = `reports_${locId}_${rangeStart}_${rangeEnd}.csv`;
+    const baseAll = `reports_ALL_${rangeStart}_${rangeEnd}.csv`;
+
+    return {
+      currentHref,
+      currentName: baseCurrent,
+      allHref,
+      allName: baseAll,
+      disabled: false,
+    };
   }, [locId, rangeStart, rangeEnd]);
 
   return (
@@ -174,16 +193,26 @@ export default function ReportsPage() {
               {loading ? 'Loading…' : 'Generate'}
             </button>
 
+            {/* CSV (เฉพาะ location ที่เลือก) */}
             <a
-    href={
-      !locId || !rangeStart || !rangeEnd
-        ? '#'
-        : `/api/reports/csv?location=${encodeURIComponent(locId)}&start=${encodeURIComponent(rangeStart)}&end=${encodeURIComponent(rangeEnd)}`
-    }
-    onClick={(e) => { if (!locId || !rangeStart || !rangeEnd) e.preventDefault(); }}
-    className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
-  >
-              Export CSV
+              href={csvLinks.currentHref}
+              download={csvLinks.currentName}
+              onClick={(e) => { if (csvLinks.disabled) e.preventDefault(); }}
+              aria-disabled={csvLinks.disabled}
+              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
+            >
+              Export CSV (This location)
+            </a>
+
+            {/* CSV (รวมทุกสาขา) */}
+            <a
+              href={csvLinks.allHref}
+              download={csvLinks.allName}
+              onClick={(e) => { if (csvLinks.disabled) e.preventDefault(); }}
+              aria-disabled={csvLinks.disabled}
+              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
+            >
+              Export CSV (All locations)
             </a>
           </div>
         </div>
@@ -228,40 +257,64 @@ export default function ReportsPage() {
 
         {/* Table */}
         {rows.length > 0 && !loading && (
-          <div className="overflow-x-auto rounded-xl border bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-[var(--surface-muted)] border-b">
-                <tr className="[&>th]:px-2 [&>th]:py-2 text-left">
-                  <th>BillNo</th>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Location</th>
-                  <th>Items</th>
-                  <th className="text-right">Subtotal</th>
-                  <th className="text-right">Discount</th>
-                  <th className="text-right">Markup</th>
-                  <th className="text-right">Total</th>
-                  <th>Payment</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRows.map((r) => (
-                  <tr key={`${r.location}-${r.billNo}-${r.time}`} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="px-2 py-2">{r.billNo}</td>
-                    <td className="px-2 py-2">{r.date}</td>
-                    <td className="px-2 py-2">{r.time}</td>
-                    <td className="px-2 py-2">{r.location}</td>
-                    <td className="px-2 py-2">{r.items.map((i) => `${i.name}x${i.qty}`).join(', ')}</td>
-                    <td className="px-2 py-2 text-right">{fmt(r.subtotal)}</td>
-                    <td className="px-2 py-2 text-right">{fmt(r.discount ?? 0)}</td>
-                    <td className="px-2 py-2 text-right">{fmt(r.linemanMarkup ?? 0)}</td>
-                    <td className="px-2 py-2 text-right font-semibold">{fmt(r.total)}</td>
-                    <td className="px-2 py-2">{r.payment}</td>
+          <>
+            <div className="overflow-x-auto rounded-xl border bg-white">
+              <table className="w-full text-sm">
+                <thead className="bg-[var(--surface-muted)] border-b">
+                  <tr className="[&>th]:px-2 [&>th]:py-2 text-left">
+                    <th>BillNo</th>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Location</th>
+                    <th>Items</th>
+                    <th className="text-right">Subtotal</th>
+                    <th className="text-right">Discount</th>
+                    <th className="text-right">Markup</th>
+                    <th className="text-right">Total</th>
+                    <th>Payment</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {sortedRows.map((r) => (
+                    <tr key={`${r.location}-${r.billNo}-${r.time}`} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="px-2 py-2">{r.billNo}</td>
+                      <td className="px-2 py-2">{r.date}</td>
+                      <td className="px-2 py-2">{r.time}</td>
+                      <td className="px-2 py-2">{r.location}</td>
+                      <td className="px-2 py-2">{r.items.map((i) => `${i.name}x${i.qty}`).join(', ')}</td>
+                      <td className="px-2 py-2 text-right">{fmt(r.subtotal)}</td>
+                      <td className="px-2 py-2 text-right">{fmt(r.discount ?? 0)}</td>
+                      <td className="px-2 py-2 text-right">{fmt(r.linemanMarkup ?? 0)}</td>
+                      <td className="px-2 py-2 text-right font-semibold">{fmt(r.total)}</td>
+                      <td className="px-2 py-2">{r.payment}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Bottom export bar (เหมือนด้านบน) */}
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <a
+                href={csvLinks.currentHref}
+                download={csvLinks.currentName}
+                onClick={(e) => { if (csvLinks.disabled) e.preventDefault(); }}
+                aria-disabled={csvLinks.disabled}
+                className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
+              >
+                Export CSV (This location)
+              </a>
+              <a
+                href={csvLinks.allHref}
+                download={csvLinks.allName}
+                onClick={(e) => { if (csvLinks.disabled) e.preventDefault(); }}
+                aria-disabled={csvLinks.disabled}
+                className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
+              >
+                Export CSV (All locations)
+              </a>
+            </div>
+          </>
         )}
 
         {rows.length === 0 && !loading && (

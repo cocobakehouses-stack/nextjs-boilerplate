@@ -3,11 +3,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import HeaderMenu from '../components/HeaderMenu';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
 import { products as FALLBACK_PRODUCTS } from '../data/products';
-
 import {
   ShoppingCart, Trash2, Plus, Minus, Home as HomeIcon,
   CreditCard, Smartphone, Truck, CheckCircle, ChevronDown, ChevronUp
@@ -15,7 +13,7 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-type Product = { id: number; name: string; price: number };
+type Product = { id: number; name: string; price: number; category?: string };
 type CartItem = Product & { quantity: number };
 type Step = 'cart' | 'confirm' | 'success';
 
@@ -51,9 +49,8 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [payment, setPayment] = useState<'cash' | 'promptpay' | 'lineman' | null>(null);
 
-  // Discount + Markup
+  // Discount
   const [discount, setDiscount] = useState<number>(0);
-  const [linemanMarkupRate] = useState<number>(0.15); // 15%
 
   // Products
   const [products, setProducts] = useState<Product[]>([]);
@@ -65,8 +62,7 @@ export default function POSPage() {
       const res = await fetch('/api/products', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const list: Product[] = data?.products || [];
-      if (list.length > 0) setProducts(list);
-      else setProducts(FALLBACK_PRODUCTS);
+      setProducts(list.length > 0 ? list : FALLBACK_PRODUCTS);
     } catch {
       setProducts(FALLBACK_PRODUCTS);
     } finally {
@@ -74,6 +70,28 @@ export default function POSPage() {
     }
   }
   useEffect(() => { reloadProducts(); }, []);
+
+  // Helper: effective unit price (apply x1.48 for lineman)
+  const effectiveUnitPrice = (p: Product) =>
+    payment === 'lineman' ? Number((p.price * 1.48).toFixed(2)) : p.price;
+
+  // Categories (optional, เหมือนเดิม)
+  const categories = useMemo(() => {
+    const map = new Map<string, Product[]>();
+    for (const p of products) {
+      const cat = p.category?.trim() || 'All';
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(p);
+    }
+    const keys = Array.from(map.keys());
+    keys.sort((a, b) => {
+      if (a === 'All') return 1;
+      if (b === 'All') return -1;
+      return a.localeCompare(b, 'en');
+    });
+    return keys.map(k => ({ name: k, items: map.get(k)! }));
+  }, [products]);
+  const [activeCat, setActiveCat] = useState<string>('All');
 
   // Cart ops
   const addToCart = (p: Product) => {
@@ -97,21 +115,22 @@ export default function POSPage() {
     setCart((prev) => prev.filter((i) => i.id !== id));
   };
 
-  // Totals
-  const subtotal = useMemo(() => cart.reduce((s, i) => s + i.price * i.quantity, 0), [cart]);
-  const totalAfterDiscount = Math.max(0, subtotal - discount);
-  const linemanMarkupValue = useMemo(
-    () => (payment === 'lineman' ? totalAfterDiscount * linemanMarkupRate : 0),
-    [payment, totalAfterDiscount, linemanMarkupRate]
+  // Totals (ใช้ effectiveUnitPrice เสมอ)
+  const subtotal = useMemo(
+    () => cart.reduce((s, i) => s + effectiveUnitPrice(i) * i.quantity, 0),
+    [cart, payment] // payment เปลี่ยน -> ราคาเปลี่ยน
   );
-  const grandTotal = useMemo(() => Number((totalAfterDiscount + linemanMarkupValue).toFixed(2)), [totalAfterDiscount, linemanMarkupValue]);
+  const grandTotal = useMemo(
+    () => Number(Math.max(0, subtotal - discount).toFixed(2)),
+    [subtotal, discount]
+  );
   const totalQty = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
 
   // Submit / Success
   const [isSubmitting, setSubmitting] = useState(false);
   const [lastSaved, setLastSaved] = useState<{
     billNo: string; date: string; time: string; payment: string; total: number;
-    subtotal: number; discount: number; linemanMarkup: number;
+    subtotal: number; discount: number;
   } | null>(null);
 
   async function saveBill() {
@@ -129,16 +148,23 @@ export default function POSPage() {
       const date = toDateString(new Date());
       const time = toTimeString(new Date());
 
+      // ใช้ราคา effective ที่ถูกคูณแล้วตอนบันทึก
+      const items = cart.map(i => ({
+        name: i.name,
+        qty: i.quantity,
+        price: effectiveUnitPrice(i), // <= สำคัญ
+      }));
+
       const payload = {
         location,
         date,
         time,
         payment, // 'cash' | 'promptpay' | 'lineman'
-        items: cart.map(i => ({ name: i.name, qty: i.quantity, price: i.price })),
+        items,
         freebies: [],
         subtotal: Number(subtotal.toFixed(2)),
         freebiesAmount: 0,
-        linemanMarkup: Number(linemanMarkupValue.toFixed(2)),
+        linemanMarkup: 0,          // ไม่ใช้แล้ว แต่เว้น field เผื่อ backend ยังอ่านอยู่
         linemanDiscount: Number(discount.toFixed(2)), // ใช้เป็นส่วนลดรวม
         total: Number(grandTotal.toFixed(2)),
       };
@@ -160,7 +186,6 @@ export default function POSPage() {
         total: Number(saved.total ?? payload.total),
         subtotal: Number(saved.subtotal ?? payload.subtotal),
         discount: Number(saved.linemanDiscount ?? payload.linemanDiscount),
-        linemanMarkup: Number(saved.linemanMarkup ?? payload.linemanMarkup),
       });
 
       // reset
@@ -175,19 +200,13 @@ export default function POSPage() {
     }
   }
 
-  // ⬇️ ย้าย state ซ่อน/แสดงตะกร้ามาไว้ระดับบนสุดตามกติกา Hooks
+  // ซ่อน/แสดงตะกร้า
   const [cartOpen, setCartOpen] = useState<boolean>(true);
 
   // ---------- SUCCESS ----------
   if (step === 'success' && lastSaved) {
     return (
       <main className="min-h-screen bg-[#fffff0]">
-        <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
-          <div className="max-w-6xl mx-auto px-4 py-2">
-            <HeaderMenu />
-          </div>
-        </div>
-
         <div className="max-w-6xl mx-auto px-4 py-10 flex items-center justify-center">
           <div className="bg-white p-6 rounded-xl shadow-md text-center space-y-3 w-full max-w-md">
             <CheckCircle className="w-12 h-12 text-green-600 mx-auto" />
@@ -198,13 +217,10 @@ export default function POSPage() {
             <div className="text-sm space-y-1 mt-2">
               <p>Subtotal: {lastSaved.subtotal.toFixed(2)} บาท</p>
               <p>Discount: -{lastSaved.discount.toFixed(2)} บาท</p>
-              {lastSaved.linemanMarkup > 0 && (
-                <p>Lineman Markup: +{lastSaved.linemanMarkup.toFixed(2)} บาท</p>
-              )}
             </div>
             <button
               onClick={() => setStep('cart')}
-              className="mt-4 px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90"
+              className="mt-4 px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 w-full sm:w-auto"
             >
               ทำรายการใหม่
             </button>
@@ -218,19 +234,12 @@ export default function POSPage() {
   if (step === 'cart') {
     return (
       <main className="min-h-screen bg-[#fffff0]">
-        {/* Sticky global header */}
-        <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
-          <div className="max-w-6xl mx-auto px-4 py-2">
-            <HeaderMenu />
-          </div>
-        </div>
-
-        <div className="max-w-6xl mx-auto px-4 pt-6 pb-40">
+        <div className="max-w-6xl mx-auto px-4 pt-4 pb-40">
           {/* Page header */}
-          <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center items-start justify-between gap-3">
             <Link href="/" className="flex items-center gap-2 group">
               <HomeIcon className="w-5 h-5 text-gray-600 group-hover:text-black" />
-              <span className="text-3xl font-bold hover:underline">Coco Bakehouse POS</span>
+              <span className="text-2xl sm:text-3xl font-bold hover:underline">Coco Bakehouse POS</span>
             </Link>
             <div className="flex items-center gap-2">
               <ShoppingCart className="w-5 h-5 text-gray-600" />
@@ -241,35 +250,62 @@ export default function POSPage() {
           </div>
 
           {/* Location */}
-          <LocationPicker value={location} onChange={(loc) => setLocation(loc as LocationId)} />
+          <div className="max-w-md">
+            <LocationPicker value={location} onChange={(loc) => setLocation(loc as LocationId)} />
+          </div>
 
-          {/* Products */}
+          {/* Category tabs + Products */}
           <div className="mt-4">
+            {/* Tabs */}
+            <div className="flex gap-2 overflow-auto pb-2">
+              {categories.map(c => (
+                <button
+                  key={c.name}
+                  onClick={() => setActiveCat(c.name)}
+                  className={`px-3 py-1 rounded-full border text-sm whitespace-nowrap ${activeCat === c.name ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-white hover:bg-gray-50'}`}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+
+            {/* Grid */}
             {loadingProducts ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="bg-white border rounded-xl p-3 animate-pulse h-28" />
                 ))}
               </div>
-            ) : products.length === 0 ? (
+            ) : categories.length === 0 ? (
               <div className="text-gray-600 italic border rounded-xl bg-white p-6 text-center">
                 ไม่มีสินค้าให้เลือก
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {products.map((p) => (
-                  <div key={p.id} className="bg-white border rounded-xl p-3 flex flex-col">
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-sm text-gray-500">{p.price} บาท</div>
-                    <button
-                      onClick={() => addToCart(p)}
-                      className="mt-auto px-3 py-1 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 text-sm"
-                    >
-                      เพิ่ม
-                    </button>
+              categories
+                .filter(c => c.name === activeCat)
+                .map(c => (
+                  <div key={c.name} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-2">
+                    {c.items.map((p) => (
+                      <div key={p.id} className="bg-white border rounded-xl p-3 flex flex-col">
+                        <div className="font-medium">{p.name}</div>
+                        <div className="text-sm text-gray-500">
+                          {p.price} บาท
+                          {payment === 'lineman' && (
+                            <span className="ml-1 text-xs text-gray-600">
+                              (LM {effectiveUnitPrice(p).toFixed(2)})
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => addToCart(p)}
+                          className="mt-auto px-3 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 text-sm w-full"
+                        >
+                          เพิ่ม
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                ))
             )}
           </div>
         </div>
@@ -289,8 +325,8 @@ export default function POSPage() {
               </button>
 
               <div className="ml-auto flex items-center gap-4 text-sm">
-                <div>ชิ้นทั้งหมด: <b>{totalQty}</b></div>
-                <div>รวม: <b>{subtotal.toFixed(2)}</b> บาท</div>
+                <div>ชิ้นทั้งหมด: <b className="tabular-nums">{totalQty}</b></div>
+                <div>รวม: <b className="tabular-nums">{subtotal.toFixed(2)}</b> บาท</div>
                 <button
                   onClick={() => setStep('confirm')}
                   className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40"
@@ -304,28 +340,33 @@ export default function POSPage() {
             {/* Collapsible content */}
             {cartOpen && (
               <div className="max-w-6xl mx-auto px-4 pb-3">
-                {/* รายการในตะกร้า: จำกัดความสูง + scroll ในตัวเอง ไม่ดันหน้า */}
+                {/* รายการในตะกร้า */}
                 <div className="overflow-auto max-h-44 border rounded-lg">
-                  {cart.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between border-b last:border-b-0 px-3 py-2">
-                      <div>
-                        <div className="font-medium">{item.name}</div>
-                        <div className="text-sm text-gray-500">{item.price} บาท</div>
+                  {cart.map((item) => {
+                    const unit = effectiveUnitPrice(item);
+                    return (
+                      <div key={item.id} className="flex items-center justify-between border-b last:border-b-0 px-3 py-2">
+                        <div>
+                          <div className="font-medium">{item.name}</div>
+                          <div className="text-sm text-gray-500">
+                            {unit.toFixed(2)} บาท/ชิ้น{payment === 'lineman' ? ' (LM x1.48)' : ''}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => changeQty(item.id, item.quantity - 1)} aria-label="decrease">
+                            <Minus className="w-4 h-4" />
+                          </button>
+                          <span className="tabular-nums">{item.quantity}</span>
+                          <button onClick={() => changeQty(item.id, item.quantity + 1)} aria-label="increase">
+                            <Plus className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => removeFromCart(item.id)} aria-label="remove">
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => changeQty(item.id, item.quantity - 1)} aria-label="decrease">
-                          <Minus className="w-4 h-4" />
-                        </button>
-                        <span>{item.quantity}</span>
-                        <button onClick={() => changeQty(item.id, item.quantity + 1)} aria-label="increase">
-                          <Plus className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => removeFromCart(item.id)} aria-label="remove">
-                          <Trash2 className="w-4 h-4 text-red-500" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Discount + Payment + Totals */}
@@ -339,21 +380,21 @@ export default function POSPage() {
                       className="w-full sm:w-40 rounded border px-3 py-2"
                     />
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 sm:flex-row flex-col">
                     <button
-                      className={`flex-1 px-3 py-2 rounded-lg border ${payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
+                      className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
                       onClick={() => setPayment('cash')}
                     >
                       <CreditCard className="inline w-4 h-4 mr-1" /> เงินสด
                     </button>
                     <button
-                      className={`flex-1 px-3 py-2 rounded-lg border ${payment === 'promptpay' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
+                      className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'promptpay' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
                       onClick={() => setPayment('promptpay')}
                     >
                       <Smartphone className="inline w-4 h-4 mr-1" /> PromptPay
                     </button>
                     <button
-                      className={`flex-1 px-3 py-2 rounded-lg border ${payment === 'lineman' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
+                      className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'lineman' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
                       onClick={() => setPayment('lineman')}
                     >
                       <Truck className="inline w-4 h-4 mr-1" /> Lineman
@@ -361,22 +402,16 @@ export default function POSPage() {
                   </div>
                   <div className="text-sm space-y-1">
                     <div className="flex justify-between">
-                      <span>Subtotal</span>
-                      <span>{subtotal.toFixed(2)} บาท</span>
+                      <span>Subtotal{payment === 'lineman' ? ' (incl. LM x1.48)' : ''}</span>
+                      <span className="tabular-nums">{subtotal.toFixed(2)} บาท</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Discount</span>
-                      <span>-{discount.toFixed(2)} บาท</span>
+                      <span className="tabular-nums">-{discount.toFixed(2)} บาท</span>
                     </div>
-                    {payment === 'lineman' && (
-                      <div className="flex justify-between">
-                        <span>Lineman Mark-up ({Math.round(linemanMarkupRate * 100)}%)</span>
-                        <span>+{linemanMarkupValue.toFixed(2)} บาท</span>
-                      </div>
-                    )}
                     <div className="flex justify-between font-semibold text-lg">
                       <span>Grand Total</span>
-                      <span>{grandTotal.toFixed(2)} บาท</span>
+                      <span className="tabular-nums">{grandTotal.toFixed(2)} บาท</span>
                     </div>
                   </div>
                 </div>
@@ -392,56 +427,52 @@ export default function POSPage() {
   if (step === 'confirm') {
     return (
       <main className="min-h-screen bg-[#fffff0]">
-        <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
-          <div className="max-w-6xl mx-auto px-4 py-2">
-            <HeaderMenu />
-          </div>
-        </div>
-
         <div className="max-w-6xl mx-auto px-4 py-6">
-          {/* ยอดรวมเป็นหัวเรื่องใหญ่บนสุด */}
-          <h1 className="text-3xl font-extrabold mb-2">รวม {grandTotal.toFixed(2)} บาท</h1>
+          <h1 className="text-2xl sm:text-3xl font-extrabold mb-2">รวม {grandTotal.toFixed(2)} บาท</h1>
           <div className="text-sm text-gray-600 mb-6">
-            สาขา: <b>{location ?? '-'}</b> • จำนวนชิ้น: <b>{totalQty}</b> • Subtotal: <b>{subtotal.toFixed(2)}</b> • Discount: <b>-{discount.toFixed(2)}</b>
-            {payment === 'lineman' ? <> • Mark-up: <b>+{linemanMarkupValue.toFixed(2)}</b></> : null}
+            สาขา: <b>{location ?? '-'}</b> • จำนวนชิ้น: <b className="tabular-nums">{totalQty}</b> • Subtotal{payment==='lineman' ? ' (incl. LM x1.48)' : ''}: <b className="tabular-nums">{subtotal.toFixed(2)}</b> • Discount: <b className="tabular-nums">-{discount.toFixed(2)}</b>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
-            {/* รายการสินค้า */}
             <div className="lg:col-span-2 bg-white rounded-xl border p-4">
               <h2 className="font-semibold mb-3">รายการสินค้า</h2>
               {cart.length === 0 ? (
                 <div className="text-gray-600">ไม่มีสินค้า</div>
               ) : (
                 <div className="divide-y">
-                  {cart.map(i => (
-                    <div key={i.id} className="py-2 flex justify-between text-sm">
-                      <div>{i.name} × {i.quantity}</div>
-                      <div>{(i.price * i.quantity).toFixed(2)} บาท</div>
-                    </div>
-                  ))}
+                  {cart.map(i => {
+                    const unit = effectiveUnitPrice(i);
+                    return (
+                      <div key={i.id} className="py-2 flex justify-between text-sm">
+                        <div>{i.name} × <span className="tabular-nums">{i.quantity}</span></div>
+                        <div className="tabular-nums">
+                          {(unit * i.quantity).toFixed(2)} บาท
+                          {payment === 'lineman' ? <span className="ml-1 text-xs text-gray-600">(unit {unit.toFixed(2)})</span> : null}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            {/* วิธีชำระ & action */}
             <div className="bg-white rounded-xl border p-4">
               <h2 className="font-semibold mb-3">วิธีชำระเงิน</h2>
-              <div className="flex gap-2 mb-4">
+              <div className="flex gap-2 mb-4 sm:flex-row flex-col">
                 <button
-                  className={`flex-1 px-3 py-2 rounded-lg border ${payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
+                  className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
                   onClick={() => setPayment('cash')}
                 >
                   <CreditCard className="inline w-4 h-4 mr-1" /> เงินสด
                 </button>
                 <button
-                  className={`flex-1 px-3 py-2 rounded-lg border ${payment === 'promptpay' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
+                  className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'promptpay' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
                   onClick={() => setPayment('promptpay')}
                 >
                   <Smartphone className="inline w-4 h-4 mr-1" /> PromptPay
                 </button>
                 <button
-                  className={`flex-1 px-3 py-2 rounded-lg border ${payment === 'lineman' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
+                  className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'lineman' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
                   onClick={() => setPayment('lineman')}
                 >
                   <Truck className="inline w-4 h-4 mr-1" /> Lineman
@@ -450,35 +481,29 @@ export default function POSPage() {
 
               <div className="text-sm space-y-1 mb-4">
                 <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span>{subtotal.toFixed(2)} บาท</span>
+                  <span>Subtotal{payment === 'lineman' ? ' (incl. LM x1.48)' : ''}</span>
+                  <span className="tabular-nums">{subtotal.toFixed(2)} บาท</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Discount</span>
-                  <span>-{discount.toFixed(2)} บาท</span>
+                  <span className="tabular-nums">-{discount.toFixed(2)} บาท</span>
                 </div>
-                {payment === 'lineman' && (
-                  <div className="flex justify-between">
-                    <span>Lineman Mark-up ({Math.round(linemanMarkupRate * 100)}%)</span>
-                    <span>+{linemanMarkupValue.toFixed(2)} บาท</span>
-                  </div>
-                )}
                 <div className="flex justify-between font-semibold text-lg">
                   <span>Grand Total</span>
-                  <span>{grandTotal.toFixed(2)} บาท</span>
+                  <span className="tabular-nums">{grandTotal.toFixed(2)} บาท</span>
                 </div>
               </div>
 
-              <div className="flex justify-between">
+              <div className="flex sm:justify-between gap-2 sm:flex-row flex-col">
                 <button
                   onClick={() => setStep('cart')}
-                  className="px-4 py-2 rounded-lg border hover:bg-gray-50"
+                  className="px-4 py-2 rounded-lg border hover:bg-gray-50 w-full sm:w-auto"
                 >
                   กลับไปแก้
                 </button>
                 <button
                   onClick={saveBill}
-                  className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40"
+                  className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40 w-full sm:w-auto"
                   disabled={!payment || cart.length === 0 || isSubmitting}
                 >
                   {isSubmitting ? 'Saving…' : 'ยืนยันการขาย'}
@@ -491,6 +516,6 @@ export default function POSPage() {
     );
   }
 
-  // fallback (shouldn't happen)
+  // fallback
   return null;
 }

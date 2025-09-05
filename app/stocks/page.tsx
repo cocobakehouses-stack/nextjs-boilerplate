@@ -14,10 +14,7 @@ import {
   Loader2,
   Download,
   Calendar,
-  PackagePlus,
 } from 'lucide-react';
-
-type Product = { id: number; name: string; price: number; active?: boolean };
 
 type StockItem = {
   productId: number;
@@ -28,12 +25,17 @@ type StockItem = {
 
 type MovementRow = {
   id?: string;
-  date: string; time: string;
+  date: string;
+  time: string;
   location: string;
-  productId: number; productName: string;
-  delta: number; reason?: string; user?: string;
+  productId: number;
+  productName: string;
+  delta: number;
+  reason?: string;
+  user?: string;
 };
 
+type Product = { id: number; name: string; price: number; active?: boolean }; // ⬅️ ใช้สำหรับ Add panel
 type Tab = 'stock' | 'movements';
 
 function cx(...xs: Array<string | false | null | undefined>) {
@@ -58,29 +60,12 @@ export default function StocksPage() {
   }, [location]);
 
   // =========================================================
-  // ===============   PRODUCTS (for Add Stock)   ============
-  // =========================================================
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(true);
-
-  async function loadProducts() {
-    try {
-      setLoadingProducts(true);
-      const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
-      const data = await res.json().catch(() => ({}));
-      setProducts(Array.isArray(data?.products) ? data.products : []);
-    } finally {
-      setLoadingProducts(false);
-    }
-  }
-  useEffect(() => { loadProducts(); }, []);
-
-  // =========================================================
   // ================   TAB 1: CURRENT STOCK   ===============
   // =========================================================
   const [loadingStock, setLoadingStock] = useState(false);
   const [stocks, setStocks] = useState<StockItem[]>([]);
   const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
+
   const setPendingOn = (id: number, on: boolean) => {
     setPendingIds(prev => {
       const next = new Set(prev);
@@ -111,8 +96,9 @@ export default function StocksPage() {
     const nextQty = kind === 'set' ? Math.max(0, Number(setTo || 0)) : Math.max(0, p.qty + delta);
 
     // optimistic
-    setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: nextQty } : x));
+    setStocks(prev => prev.map(x => x.productId === p.productId ? ({ ...x, qty: nextQty }) : x));
     setPendingOn(p.productId, true);
+
     try {
       const body: any = kind === 'set'
         ? { setTo: nextQty, reason: 'manual set' }
@@ -126,18 +112,33 @@ export default function StocksPage() {
       if (!res.ok) throw new Error('Update stock failed');
     } catch (e) {
       // revert
-      setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: p.qty } : x));
+      setStocks(prev => prev.map(x => x.productId === p.productId ? ({ ...x, qty: p.qty }) : x));
       alert('อัปเดตสต๊อกไม่สำเร็จ');
     } finally {
       setPendingOn(p.productId, false);
     }
   }
 
-  // ===== Add Stock Panel (NEW) =====
+  // ---------- Add Stock panel states ----------
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
   const [addPid, setAddPid] = useState<number | ''>('');
   const [addQty, setAddQty] = useState<string>('');
   const [addReason, setAddReason] = useState<string>('opening add');
   const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingProducts(true);
+        const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        setProducts(Array.isArray(data?.products) ? data.products : []);
+      } finally {
+        setLoadingProducts(false);
+      }
+    })();
+  }, []);
 
   async function addStock() {
     if (!location) { alert('กรุณาเลือกสถานที่'); return; }
@@ -158,14 +159,14 @@ export default function StocksPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await res.json().catch(()=> ({}));
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'เพิ่มสต๊อกไม่สำเร็จ');
 
-      // refresh
+      // clear & refresh
       setAddPid('');
       setAddQty('');
       await loadStocks();
-    } catch (e:any) {
+    } catch (e: any) {
       alert(e?.message || 'เพิ่มสต๊อกไม่สำเร็จ');
     } finally {
       setAdding(false);
@@ -189,12 +190,15 @@ export default function StocksPage() {
     if (!location || !mvStart || !mvEnd) return;
     setMvLoading(true);
     try {
-      const q = new URLSearchParams({ location, start: mvStart, end: mvEnd }).toString();
+      const q = new URLSearchParams({ location: location, start: mvStart, end: mvEnd }).toString();
       const res = await fetch(`/api/stocks/movements?${q}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const list: MovementRow[] = data?.movements || [];
-      list.sort((a, b) => (`${b.date}T${b.time}`).localeCompare(`${a.date}T${a.time}`));
+      list.sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`));
       setMvRows(list);
+    } catch (e) {
+      console.error('Load movements error', e);
+      setMvRows([]);
     } finally {
       setMvLoading(false);
     }
@@ -222,10 +226,10 @@ export default function StocksPage() {
         <div className="flex items-center justify-between gap-3 mb-4">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Boxes className="w-6 h-6 text-[var(--brand)]" />
-            Stocks
+            Products & Stock
           </h1>
           {/* Location */}
-          <div className="min-w-[220px]">
+          <div className="min-w-[240px]">
             <LocationPicker value={location} onChange={(id) => setLocation(id as LocationId)} />
           </div>
         </div>
@@ -239,7 +243,7 @@ export default function StocksPage() {
             )}
             onClick={() => setTab('stock')}
           >
-            <Boxes className="w-4 h-4" /> Current Stock
+            <Boxes className="w-4 h-4" /> Stock
           </button>
           <button
             className={cx(
@@ -248,22 +252,31 @@ export default function StocksPage() {
             )}
             onClick={() => setTab('movements')}
           >
-            <HistoryIcon className="w-4 h-4" /> Movement History
+            <HistoryIcon className="w-4 h-4" /> History
           </button>
         </div>
 
         {/* ===== TAB: CURRENT STOCK ===== */}
         {tab === 'stock' && (
           <section className="space-y-4">
-            {/* Add Stock Panel (NEW) */}
-            <div className="rounded-xl border bg-[var(--surface-muted)] p-4">
-              <div className="flex items-end flex-wrap gap-3">
-                <div className="flex items-center gap-2 text-sm text-gray-700">
-                  <PackagePlus className="w-4 h-4" />
-                  <b>Add Stock to Location</b>
-                </div>
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
+              </div>
+              <button
+                onClick={loadStocks}
+                className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
+                disabled={!location || loadingStock}
+              >
+                {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Reload
+              </button>
+            </div>
 
-                <div className="min-w-[280px]">
+            {/* === Add Stock Panel (อยู่ตรงนี้) === */}
+            <div className="rounded-xl border bg-[var(--surface-muted)] p-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-[260px]">
                   <label className="block text-sm text-gray-600 mb-1">Product</label>
                   <select
                     value={addPid}
@@ -315,22 +328,7 @@ export default function StocksPage() {
               </div>
             </div>
 
-            {/* Header bar */}
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
-              </div>
-              <button
-                onClick={loadStocks}
-                className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
-                disabled={!location || loadingStock}
-              >
-                {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                Refresh
-              </button>
-            </div>
-
-            {/* Table */}
+            {/* ตารางสต๊อก */}
             <div className="overflow-auto rounded-xl border">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
@@ -378,7 +376,7 @@ export default function StocksPage() {
                   {stocks.length === 0 && (
                     <tr>
                       <td colSpan={3} className="px-3 py-6 text-center text-gray-600">
-                        {loadingStock ? 'กำลังโหลด…' : 'ไม่มีสินค้าในสาขานี้'}
+                        {loadingStock ? 'กำลังโหลด…' : 'ยังไม่มีข้อมูลสต๊อก'}
                       </td>
                     </tr>
                   )}
@@ -481,8 +479,14 @@ export default function StocksPage() {
 
 /** ปุ่ม Set exact (inline) */
 function SetExactButton({
-  qty, onSet, disabled,
-}: { qty: number; onSet: (val: number) => void; disabled?: boolean; }) {
+  qty,
+  onSet,
+  disabled,
+}: {
+  qty: number;
+  onSet: (val: number) => void;
+  disabled?: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState<string>(() => String(qty));
   useEffect(() => { setVal(String(qty)); }, [qty]);
@@ -503,7 +507,7 @@ function SetExactButton({
     <div className="flex items-center gap-1">
       <input
         type="number"
-        className="w-20 rounded border px-2 py-1 text-sm text-right"
+        className="w-20 rounded border px-2 py-1 text-sm"
         value={val}
         onChange={(e) => setVal(e.target.value)}
         min={0}

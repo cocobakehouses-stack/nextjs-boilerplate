@@ -71,7 +71,6 @@ export async function GET(req: Request) {
 
     // รายการรวมทั้งช่วง (grand total)
     const grand = summarizeTotals(rows);
-
     // สรุปแบ่งตาม period
     const buckets = aggregateByPeriod(rows, period);
 
@@ -82,6 +81,8 @@ export async function GET(req: Request) {
         range: { start: startDate, end: endDate },
         grand,
         buckets,
+        rows,                 
+
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );

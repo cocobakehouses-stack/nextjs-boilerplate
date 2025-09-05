@@ -1,21 +1,28 @@
 @import "tailwindcss";
 
 /* ---------- CSS Variables ---------- */
-:root {
-  /* Base (จาก template เดิม) */
-  --background: #ffffff;
-  --foreground: #171717;
-
-  /* Gumroad inspired */
-  --brand: #ac0000;          /* main red */
-  --brand-contrast: #fffff0; /* ivory */
-  --surface: #ffffff;
-  --surface-muted: #fafafa;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
-  --radius: 1rem;
-  --shadow: 0 4px 16px rgba(0,0,0,0.08);
+:root{
+  --brand:#ac0000;
+  --brand-contrast:#fffff0;
+  --surface:#ffffff;
+  --surface-muted:#f8f8f6;
+  --text:#111827;
+  --text-muted:#6b7280;
+  --border:#e5e7eb;
+  --radius:12px;
+  --shadow:0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.06);
 }
+html,body{ color:var(--text); background:var(--surface-muted); }
+.btn{ @apply inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium transition;
+      box-shadow: var(--shadow); }
+.btn-primary{ background:var(--brand); color:var(--brand-contrast); }
+.btn-ghost{ @apply border bg-white hover:bg-gray-50; border-color:var(--border); }
+.btn-danger{ @apply text-white; background:#dc2626; }
+.card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); }
+.table{ @apply w-full text-sm; }
+.table thead{ @apply bg-[var(--surface-muted)] border-b; }
+.table th,.table td{ @apply px-2 py-2 text-left; }
+.table .num{ @apply text-right; }
 
 /* ---------- Tailwind Theme Inline ---------- */
 @theme inline {

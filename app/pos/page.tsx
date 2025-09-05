@@ -2,13 +2,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import HeaderMenu from '../components/HeaderMenu';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
 import { products as FALLBACK_PRODUCTS } from '../data/products';
 
 import {
-  ShoppingCart, Trash2, Plus, Minus, Home,
+  ShoppingCart, Trash2, Plus, Minus, Home as HomeIcon,
   CreditCard, Smartphone, Truck, CheckCircle, ChevronDown, ChevronUp
 } from "lucide-react";
 
@@ -174,6 +175,9 @@ export default function POSPage() {
     }
   }
 
+  // ⬇️ ย้าย state ซ่อน/แสดงตะกร้ามาไว้ระดับบนสุดตามกติกา Hooks
+  const [cartOpen, setCartOpen] = useState<boolean>(true);
+
   // ---------- SUCCESS ----------
   if (step === 'success' && lastSaved) {
     return (
@@ -212,8 +216,6 @@ export default function POSPage() {
 
   // ---------- CART SCREEN ----------
   if (step === 'cart') {
-    const [cartOpen, setCartOpen] = useState<boolean>(true); // 👈 toggle ซ่อน/แสดงตะกร้า
-
     return (
       <main className="min-h-screen bg-[#fffff0]">
         {/* Sticky global header */}
@@ -226,10 +228,10 @@ export default function POSPage() {
         <div className="max-w-6xl mx-auto px-4 pt-6 pb-40">
           {/* Page header */}
           <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Home className="w-5 h-5 text-gray-600" />
-              <h1 className="text-3xl font-bold">Coco Bakehouse POS</h1>
-            </div>
+            <Link href="/" className="flex items-center gap-2 group">
+              <HomeIcon className="w-5 h-5 text-gray-600 group-hover:text-black" />
+              <span className="text-3xl font-bold hover:underline">Coco Bakehouse POS</span>
+            </Link>
             <div className="flex items-center gap-2">
               <ShoppingCart className="w-5 h-5 text-gray-600" />
               <span className="text-sm text-gray-700">

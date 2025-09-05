@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import HeaderMenu from '../components/HeaderMenu';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
 import {
@@ -13,6 +14,7 @@ import {
   Loader2,
   Download,
   Calendar,
+  PackageSearch,
 } from 'lucide-react';
 
 type StockItem = {
@@ -34,8 +36,9 @@ type MovementRow = {
   user?: string;
 };
 
-type ProductMini = { id: number; name: string };
 type Tab = 'stock' | 'movements';
+
+type Product = { id: number; name: string; price: number; active?: boolean };
 
 function cx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(' ');
@@ -89,6 +92,7 @@ export default function StocksPage() {
       setLoadingStock(false);
     }
   }
+
   useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab]);
 
   async function mutateQty(p: StockItem, kind: 'inc'|'dec'|'set', setTo?: number) {
@@ -96,7 +100,7 @@ export default function StocksPage() {
     const delta = kind === 'inc' ? 1 : kind === 'dec' ? -1 : 0;
     const nextQty = kind === 'set' ? Math.max(0, Number(setTo || 0)) : Math.max(0, p.qty + delta);
 
-    // optimistic
+    // optimistic update
     setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: nextQty } : x));
     setPendingOn(p.productId, true);
 
@@ -120,45 +124,73 @@ export default function StocksPage() {
     }
   }
 
-  // ---------- Quick Restock ----------
-  const [allProducts, setAllProducts] = useState<ProductMini[]>([]);
-  const [restockPid, setRestockPid] = useState<number | ''>('');
-  const [restockQty, setRestockQty] = useState<number>(1);
-  const [restockBusy, setRestockBusy] = useState(false);
+  // ---------- Quick Add / Set (เลือกสินค้า + ใส่จำนวน) ----------
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [selectedPid, setSelectedPid] = useState<number | ''>('');
+  const [qtyInput, setQtyInput] = useState<string>('');
 
-  async function loadAllProducts() {
-    try {
-      const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
-      const data = await res.json().catch(() => ({}));
-      const list: ProductMini[] = (data?.products || []).map((p: any) => ({ id: p.id, name: p.name }));
-      setAllProducts(list);
-    } catch {
-      setAllProducts([]);
+  useEffect(() => {
+    async function loadProducts() {
+      setLoadingProducts(true);
+      try {
+        const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        setAllProducts(Array.isArray(data?.products) ? data.products : []);
+      } finally {
+        setLoadingProducts(false);
+      }
     }
-  }
-  useEffect(() => { loadAllProducts(); }, []);
+    loadProducts();
+  }, []);
 
-  async function restock() {
-    if (!location || !restockPid || !Number.isFinite(restockQty) || restockQty <= 0) return;
-    setRestockBusy(true);
+  const selectedProduct = useMemo(
+    () => allProducts.find(p => p.id === selectedPid),
+    [allProducts, selectedPid]
+  );
+
+  async function quickAddDelta() {
+    if (!location || !selectedPid) return;
+    const n = Number(qtyInput);
+    if (!Number.isFinite(n) || n <= 0) { alert('กรุณาใส่จำนวนเป็นตัวเลขมากกว่า 0'); return; }
+
+    // call bulk adjust (+=)
     try {
-      const body = {
-        location,
-        movements: [{ productId: Number(restockPid), delta: Number(restockQty), reason: 'restock' }],
-      };
-      const res = await fetch('/api/stocks/adjust', {
+      const res = await fetch(`/api/stocks/adjust`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          location,
+          movements: [{ productId: selectedPid, delta: n, reason: 'manual add' }],
+        }),
       });
-      if (!res.ok) throw new Error('restock failed');
+      if (!res.ok) throw new Error('Adjust failed');
+      // refresh
       await loadStocks();
-      setRestockPid('');
-      setRestockQty(1);
-    } catch {
+      setQtyInput('');
+    } catch (e) {
+      console.error(e);
       alert('เพิ่มสต๊อกไม่สำเร็จ');
-    } finally {
-      setRestockBusy(false);
+    }
+  }
+
+  async function quickSetExact() {
+    if (!location || !selectedPid) return;
+    const n = Number(qtyInput);
+    if (!Number.isFinite(n) || n < 0) { alert('กรุณาใส่จำนวนเป็นตัวเลข 0 ขึ้นไป'); return; }
+
+    try {
+      const res = await fetch(`/api/stocks/${selectedPid}?location=${encodeURIComponent(location)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ setTo: n, reason: 'manual set exact' }),
+      });
+      if (!res.ok) throw new Error('Set exact failed');
+      await loadStocks();
+      setQtyInput('');
+    } catch (e) {
+      console.error(e);
+      alert('ตั้งค่าจำนวนไม่สำเร็จ');
     }
   }
 
@@ -180,7 +212,7 @@ export default function StocksPage() {
     setMvLoading(true);
     try {
       const q = new URLSearchParams({
-        location: String(location),
+        location: location,
         start: mvStart,
         end: mvEnd,
       }).toString();
@@ -200,12 +232,13 @@ export default function StocksPage() {
       setMvLoading(false);
     }
   }
+
   useEffect(() => { if (tab === 'movements') loadMovements(); }, [location, tab]);
 
   const csvHref = useMemo(() => {
     if (!location || !mvStart || !mvEnd) return '#';
     const u = new URL('/api/stocks/movements/csv', window.location.origin);
-    u.searchParams.set('location', String(location));
+    u.searchParams.set('location', location);
     u.searchParams.set('start', mvStart);
     u.searchParams.set('end', mvEnd);
     return u.toString();
@@ -215,21 +248,24 @@ export default function StocksPage() {
   // ======================   RENDER   =======================
   // =========================================================
   return (
-    <main className="min-h-screen">
-      <div className="bg-white rounded-xl shadow border p-4 sm:p-6">
-        {/* Title + Location */}
-        <div className="flex items-start sm:items-center justify-between gap-3 mb-4 flex-wrap">
+    <main className="min-h-screen bg-[var(--surface-muted)] p-6">
+      <HeaderMenu />
+
+      <div className="max-w-6xl mx-auto bg-white rounded-xl shadow p-6">
+        {/* Title */}
+        <div className="flex items-center justify-between gap-3 mb-4">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Boxes className="w-6 h-6 text-[var(--brand)]" />
             Stocks
           </h1>
-          <div className="min-w-[220px] w-full sm:w-auto">
+          {/* Location */}
+          <div className="min-w-[220px]">
             <LocationPicker value={location} onChange={(id) => setLocation(id as LocationId)} />
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-2 mb-6 flex-wrap">
+        <div className="flex items-center gap-2 mb-6">
           <button
             className={cx(
               'px-3 py-2 rounded-lg border text-sm flex items-center gap-2',
@@ -253,55 +289,78 @@ export default function StocksPage() {
         {/* ===== TAB: CURRENT STOCK ===== */}
         {tab === 'stock' && (
           <section className="space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="text-sm text-gray-600">
-                {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
+            {/* Quick Add / Set */}
+            <div className="rounded-lg border p-3 bg-[var(--surface-muted)]">
+              <div className="flex items-center gap-2 mb-2">
+                <PackageSearch className="w-4 h-4 text-gray-600" />
+                <div className="font-medium">Quick Add / Set</div>
+                <div className="text-xs text-gray-500">(เลือกสินค้า + ใส่จำนวนที่สาขานี้)</div>
               </div>
-              <button
-                onClick={loadStocks}
-                className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50 disabled:opacity-60"
-                disabled={!location || loadingStock}
-              >
-                {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                Refresh
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+                <div className="flex-1 min-w-[260px]">
+                  <label className="block text-sm text-gray-600 mb-1">สินค้า</label>
+                  <select
+                    value={selectedPid}
+                    onChange={(e) => setSelectedPid(e.target.value ? Number(e.target.value) : '')}
+                    className="w-full rounded border px-3 py-2 bg-white"
+                    disabled={loadingProducts}
+                  >
+                    <option value="">{loadingProducts ? 'กำลังโหลด…' : '— เลือกสินค้า —'}</option>
+                    {allProducts.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.price})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="w-full sm:w-40">
+                  <label className="block text-sm text-gray-600 mb-1">จำนวน</label>
+                  <input
+                    type="number"
+                    min={0}
+                    inputMode="numeric"
+                    value={qtyInput}
+                    onChange={(e) => setQtyInput(e.target.value)}
+                    className="w-full rounded border px-3 py-2 bg-white"
+                    placeholder="เช่น 24"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={quickAddDelta}
+                    disabled={!location || !selectedPid || !qtyInput}
+                    className="px-3 py-2 rounded-lg border hover:bg-gray-50 disabled:opacity-40"
+                    title="เพิ่มจำนวนเข้า (+=)"
+                  >
+                    Add (+=)
+                  </button>
+                  <button
+                    onClick={quickSetExact}
+                    disabled={!location || !selectedPid || qtyInput === ''}
+                    className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40"
+                    title="ตั้งค่าให้เท่าจำนวนนี้"
+                  >
+                    Set exact
+                  </button>
+                </div>
+                <div className="ml-auto">
+                  <button
+                    onClick={loadStocks}
+                    className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
+                    disabled={!location || loadingStock}
+                  >
+                    {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    Refresh
+                  </button>
+                </div>
+              </div>
+              {selectedProduct && (
+                <div className="mt-2 text-xs text-gray-600">
+                  เลือก: <b>{selectedProduct.name}</b> — ราคา {selectedProduct.price} บาท
+                </div>
+              )}
             </div>
 
-            {/* Quick Restock */}
-            <div className="flex flex-wrap items-end gap-2 border p-3 rounded-lg bg-gray-50">
-              <div className="flex flex-col">
-                <label className="text-xs text-gray-600 mb-1">Product</label>
-                <select
-                  className="rounded border px-3 py-2 bg-white min-w-[220px]"
-                  value={restockPid}
-                  onChange={(e) => setRestockPid(e.target.value ? Number(e.target.value) : '')}
-                  disabled={!location || restockBusy}
-                >
-                  <option value="">— เลือกสินค้า —</option>
-                  {allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </div>
-              <div className="flex flex-col">
-                <label className="text-xs text-gray-600 mb-1">Qty (+)</label>
-                <input
-                  type="number"
-                  min={1}
-                  className="rounded border px-3 py-2 bg-white w-28"
-                  value={restockQty}
-                  onChange={(e) => setRestockQty(Math.max(1, Number(e.target.value)||1))}
-                  disabled={!location || restockBusy}
-                />
-              </div>
-              <button
-                onClick={restock}
-                className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-50"
-                disabled={!location || !restockPid || restockBusy}
-              >
-                {restockBusy ? 'Saving…' : 'Add to stock'}
-              </button>
-            </div>
-
-            {/* Table */}
             <div className="overflow-auto rounded-xl border">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">

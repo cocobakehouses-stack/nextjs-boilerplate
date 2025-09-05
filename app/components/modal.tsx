@@ -1,31 +1,45 @@
 'use client';
+
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
-export default function Modal({
-  open, title, children, onClose, footer,
-}: {
+type Props = {
   open: boolean;
   title?: string;
-  children?: React.ReactNode;
   onClose?: () => void;
+  children?: React.ReactNode;
   footer?: React.ReactNode;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[60]">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="absolute inset-0 grid place-items-center p-4">
-        <div className="w-full max-w-lg rounded-xl bg-white shadow-xl border">
-          <div className="flex items-center justify-between p-4 border-b">
-            <h3 className="font-semibold">{title}</h3>
-            <button onClick={onClose} className="p-1 rounded hover:bg-gray-100" aria-label="Close">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="p-4">{children}</div>
-          {footer ? <div className="p-4 border-t bg-[var(--surface-muted)]">{footer}</div> : null}
+};
+
+export default function Modal({ open, title, onClose, children, footer }: Props) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!open || !mounted) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[1000] flex items-center justify-center"
+      aria-modal="true"
+      role="dialog"
+    >
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 w-[90vw] max-w-lg rounded-xl border bg-white shadow-xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="font-semibold">{title}</h3>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-gray-100"
+            aria-label="Close modal"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
+        <div className="p-4">{children}</div>
+        {footer ? <div className="px-4 py-3 border-t bg-gray-50">{footer}</div> : null}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -1,6 +1,6 @@
 // app/components/ui/Card.tsx
 'use client';
-import { cn } from "../utils";
+import { cn } from "./utils";
 
 export function Card({className='', ...p}:React.HTMLAttributes<HTMLDivElement>){
   return <div className={cn('card p-4', className)} {...p} />;

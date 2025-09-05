@@ -14,8 +14,10 @@ import {
   Loader2,
   Download,
   Calendar,
-  PackageSearch,
+  PackagePlus,
 } from 'lucide-react';
+
+type Product = { id: number; name: string; price: number; active?: boolean };
 
 type StockItem = {
   productId: number;
@@ -26,18 +28,13 @@ type StockItem = {
 
 type MovementRow = {
   id?: string;
-  date: string;
-  time: string;
+  date: string; time: string;
   location: string;
-  productId: number;
-  productName: string;
-  delta: number;
-  reason?: string;
-  user?: string;
+  productId: number; productName: string;
+  delta: number; reason?: string; user?: string;
 };
 
 type Tab = 'stock' | 'movements';
-type Product = { id: number; name: string; price: number; active?: boolean };
 
 function cx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(' ');
@@ -54,7 +51,6 @@ export default function StocksPage() {
       if (saved) setLocation(saved);
     } catch {}
   }, []);
-
   useEffect(() => {
     if (location) {
       try { localStorage.setItem('pos_location', location); } catch {}
@@ -62,22 +58,22 @@ export default function StocksPage() {
   }, [location]);
 
   // =========================================================
-  // ================   PRODUCTS (อ้างอิง)   =================
+  // ===============   PRODUCTS (for Add Stock)   ============
   // =========================================================
-  const [allProducts, setAllProducts] = useState<Product[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
 
-  async function loadAllProducts() {
-    setLoadingProducts(true);
+  async function loadProducts() {
     try {
+      setLoadingProducts(true);
       const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
-      setAllProducts(Array.isArray(data?.products) ? data.products : []);
+      setProducts(Array.isArray(data?.products) ? data.products : []);
     } finally {
       setLoadingProducts(false);
     }
   }
-  useEffect(() => { loadAllProducts(); }, []);
+  useEffect(() => { loadProducts(); }, []);
 
   // =========================================================
   // ================   TAB 1: CURRENT STOCK   ===============
@@ -85,53 +81,21 @@ export default function StocksPage() {
   const [loadingStock, setLoadingStock] = useState(false);
   const [stocks, setStocks] = useState<StockItem[]>([]);
   const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
-
   const setPendingOn = (id: number, on: boolean) => {
     setPendingIds(prev => {
       const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
+      if (on) next.add(id); else next.delete(id);
       return next;
     });
   };
 
-  // ⬇️ สำคัญ: รวม "สินค้าทั้งหมด" เข้ากับ "ยอดสต็อกของสาขา"
   async function loadStocks() {
     if (!location) return;
     setLoadingStock(true);
     try {
-      // ดึงยอดสต็อกของสาขา
       const res = await fetch(`/api/stocks?location=${encodeURIComponent(location)}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
-      const existing: Array<{ productId: number; name: string; qty: number }> = data?.stocks || [];
-
-      // ถ้ายังไม่เคยโหลด products ให้ไปโหลดมาก่อน
-      let products = allProducts;
-      if (products.length === 0) {
-        const pRes = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
-        const pData = await pRes.json().catch(() => ({}));
-        products = Array.isArray(pData?.products) ? pData.products : [];
-        setAllProducts(products);
-      }
-
-      // ทำ map จากสต็อกปัจจุบัน
-      const map = new Map<number, { qty: number; name: string }>();
-      for (const row of existing) map.set(row.productId, { qty: row.qty, name: row.name });
-
-      // รวม: ทุกสินค้า → ถ้าไม่มีในสาขานี้ ให้ qty = 0
-      const merged: StockItem[] = products.map(p => {
-        const found = map.get(p.id);
-        return {
-          productId: p.id,
-          name: found?.name ?? p.name,
-          qty: found?.qty ?? 0,
-          price: p.price,
-        };
-      });
-
-      // เรียงชื่อให้ค้นง่าย
-      merged.sort((a, b) => a.name.localeCompare(b.name, 'th'));
-      setStocks(merged);
+      setStocks(data?.stocks || []);
     } catch (e) {
       console.error('Load stocks error', e);
       setStocks([]);
@@ -139,20 +103,17 @@ export default function StocksPage() {
       setLoadingStock(false);
     }
   }
-
-  useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab, allProducts.length]);
+  useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab]);
 
   async function mutateQty(p: StockItem, kind: 'inc'|'dec'|'set', setTo?: number) {
     if (!location) return;
     const delta = kind === 'inc' ? 1 : kind === 'dec' ? -1 : 0;
     const nextQty = kind === 'set' ? Math.max(0, Number(setTo || 0)) : Math.max(0, p.qty + delta);
 
-    // optimistic update
+    // optimistic
     setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: nextQty } : x));
     setPendingOn(p.productId, true);
-
     try {
-      // หมายเหตุ: endpoint ฝั่ง server จะ "สร้างแถวใหม่" ให้ถ้ายังไม่เคยมีสินค้านี้ในโลเคชั่น
       const body: any = kind === 'set'
         ? { setTo: nextQty, reason: 'manual set' }
         : { delta, reason: delta > 0 ? 'manual +1' : 'manual -1' };
@@ -172,56 +133,42 @@ export default function StocksPage() {
     }
   }
 
-  // ---------- Quick Add / Set (เลือกสินค้า + ใส่จำนวน) ----------
-  const [selectedPid, setSelectedPid] = useState<number | ''>('');
-  const [qtyInput, setQtyInput] = useState<string>('');
+  // ===== Add Stock Panel (NEW) =====
+  const [addPid, setAddPid] = useState<number | ''>('');
+  const [addQty, setAddQty] = useState<string>('');
+  const [addReason, setAddReason] = useState<string>('opening add');
+  const [adding, setAdding] = useState(false);
 
-  const selectedProduct = useMemo(
-    () => allProducts.find(p => p.id === selectedPid),
-    [allProducts, selectedPid]
-  );
-
-  async function quickAddDelta() {
-    if (!location || !selectedPid) return;
-    const n = Number(qtyInput);
-    if (!Number.isFinite(n) || n <= 0) { alert('กรุณาใส่จำนวนเป็นตัวเลขมากกว่า 0'); return; }
-
-    try {
-      // ใช้ bulk adjust → จะสร้างแถวใน STOCKS ให้หากยังไม่มี
-      const res = await fetch(`/api/stocks/adjust`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          location,
-          movements: [{ productId: selectedPid, delta: n, reason: 'manual add' }],
-        }),
-      });
-      if (!res.ok) throw new Error('Adjust failed');
-      await loadStocks(); // รีเฟรชเพื่อให้สินค้าที่เพิ่งเพิ่มโชว์ในตาราง
-      setQtyInput('');
-    } catch (e) {
-      console.error(e);
-      alert('เพิ่มสต๊อกไม่สำเร็จ');
+  async function addStock() {
+    if (!location) { alert('กรุณาเลือกสถานที่'); return; }
+    const pid = Number(addPid);
+    const qty = Math.floor(Number(addQty));
+    if (!pid || !Number.isFinite(qty) || qty <= 0) {
+      alert('กรุณาเลือกสินค้าและใส่จำนวนที่ถูกต้อง (> 0)');
+      return;
     }
-  }
-
-  async function quickSetExact() {
-    if (!location || !selectedPid) return;
-    const n = Number(qtyInput);
-    if (!Number.isFinite(n) || n < 0) { alert('กรุณาใส่จำนวนเป็นตัวเลข 0 ขึ้นไป'); return; }
-
+    setAdding(true);
     try {
-      const res = await fetch(`/api/stocks/${selectedPid}?location=${encodeURIComponent(location)}`, {
+      const payload = {
+        location,
+        movements: [{ productId: pid, delta: qty, reason: addReason || 'manual add' }],
+      };
+      const res = await fetch('/api/stocks/adjust', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ setTo: n, reason: 'manual set exact' }),
+        body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error('Set exact failed');
+      const data = await res.json().catch(()=> ({}));
+      if (!res.ok) throw new Error(data?.error || 'เพิ่มสต๊อกไม่สำเร็จ');
+
+      // refresh
+      setAddPid('');
+      setAddQty('');
       await loadStocks();
-      setQtyInput('');
-    } catch (e) {
-      console.error(e);
-      alert('ตั้งค่าจำนวนไม่สำเร็จ');
+    } catch (e:any) {
+      alert(e?.message || 'เพิ่มสต๊อกไม่สำเร็จ');
+    } finally {
+      setAdding(false);
     }
   }
 
@@ -242,28 +189,16 @@ export default function StocksPage() {
     if (!location || !mvStart || !mvEnd) return;
     setMvLoading(true);
     try {
-      const q = new URLSearchParams({
-        location: location,
-        start: mvStart,
-        end: mvEnd,
-      }).toString();
+      const q = new URLSearchParams({ location, start: mvStart, end: mvEnd }).toString();
       const res = await fetch(`/api/stocks/movements?${q}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const list: MovementRow[] = data?.movements || [];
-      list.sort((a, b) => {
-        const ka = `${a.date}T${a.time}`;
-        const kb = `${b.date}T${b.time}`;
-        return kb.localeCompare(ka);
-      });
+      list.sort((a, b) => (`${b.date}T${b.time}`).localeCompare(`${a.date}T${a.time}`));
       setMvRows(list);
-    } catch (e) {
-      console.error('Load movements error', e);
-      setMvRows([]);
     } finally {
       setMvLoading(false);
     }
   }
-
   useEffect(() => { if (tab === 'movements') loadMovements(); }, [location, tab]);
 
   const csvHref = useMemo(() => {
@@ -320,79 +255,82 @@ export default function StocksPage() {
         {/* ===== TAB: CURRENT STOCK ===== */}
         {tab === 'stock' && (
           <section className="space-y-4">
-            {/* Quick Add / Set */}
-            <div className="rounded-lg border p-3 bg-[var(--surface-muted)]">
-              <div className="flex items-center gap-2 mb-2">
-                <PackageSearch className="w-4 h-4 text-gray-600" />
-                <div className="font-medium">Quick Add / Set</div>
-                <div className="text-xs text-gray-500">(เลือกสินค้า + ใส่จำนวนที่สาขานี้)</div>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
-                <div className="flex-1 min-w-[260px]">
-                  <label className="block text-sm text-gray-600 mb-1">สินค้า</label>
+            {/* Add Stock Panel (NEW) */}
+            <div className="rounded-xl border bg-[var(--surface-muted)] p-4">
+              <div className="flex items-end flex-wrap gap-3">
+                <div className="flex items-center gap-2 text-sm text-gray-700">
+                  <PackagePlus className="w-4 h-4" />
+                  <b>Add Stock to Location</b>
+                </div>
+
+                <div className="min-w-[280px]">
+                  <label className="block text-sm text-gray-600 mb-1">Product</label>
                   <select
-                    value={selectedPid}
-                    onChange={(e) => setSelectedPid(e.target.value ? Number(e.target.value) : '')}
+                    value={addPid}
+                    onChange={(e)=> setAddPid(e.target.value ? Number(e.target.value) : '')}
+                    disabled={!location || loadingProducts}
                     className="w-full rounded border px-3 py-2 bg-white"
-                    disabled={loadingProducts}
                   >
-                    <option value="">{loadingProducts ? 'กำลังโหลด…' : '— เลือกสินค้า —'}</option>
-                    {allProducts.map(p => (
+                    <option value="">{loadingProducts ? 'Loading…' : 'เลือกสินค้า…'}</option>
+                    {products.map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.price})
+                        {p.name} (#{p.id})
                       </option>
                     ))}
                   </select>
                 </div>
-                <div className="w-full sm:w-40">
-                  <label className="block text-sm text-gray-600 mb-1">จำนวน</label>
+
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Quantity (+)</label>
                   <input
                     type="number"
-                    min={0}
-                    inputMode="numeric"
-                    value={qtyInput}
-                    onChange={(e) => setQtyInput(e.target.value)}
-                    className="w-full rounded border px-3 py-2 bg-white"
-                    placeholder="เช่น 24"
+                    min={1}
+                    value={addQty}
+                    onChange={(e)=> setAddQty(e.target.value)}
+                    disabled={!location}
+                    className="w-28 rounded border px-3 py-2 text-right"
+                    placeholder="เช่น 12"
                   />
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={quickAddDelta}
-                    disabled={!location || !selectedPid || !qtyInput}
-                    className="px-3 py-2 rounded-lg border hover:bg-gray-50 disabled:opacity-40"
-                    title="เพิ่มจำนวนเข้า (+=)"
-                  >
-                    Add (+=)
-                  </button>
-                  <button
-                    onClick={quickSetExact}
-                    disabled={!location || !selectedPid || qtyInput === ''}
-                    className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40"
-                    title="ตั้งค่าให้เท่าจำนวนนี้"
-                  >
-                    Set exact
-                  </button>
+
+                <div className="flex-1 min-w-[220px]">
+                  <label className="block text-sm text-gray-600 mb-1">Reason (optional)</label>
+                  <input
+                    value={addReason}
+                    onChange={(e)=> setAddReason(e.target.value)}
+                    className="w-full rounded border px-3 py-2"
+                    placeholder="opening add / delivery / manual"
+                  />
                 </div>
+
                 <div className="ml-auto">
                   <button
-                    onClick={loadStocks}
-                    className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
-                    disabled={!location || loadingStock}
+                    onClick={addStock}
+                    disabled={!location || adding}
+                    className="px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40"
                   >
-                    {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                    Refresh
+                    {adding ? 'Adding…' : 'Add to Stock'}
                   </button>
                 </div>
               </div>
-              {selectedProduct && (
-                <div className="mt-2 text-xs text-gray-600">
-                  เลือก: <b>{selectedProduct.name}</b> — ราคา {selectedProduct.price} บาท
-                </div>
-              )}
             </div>
 
-            {/* ตารางจะ “มีสินค้าครบทุกตัว” ของระบบ; ถ้ายังไม่เคยมีในสาขา → Qty = 0 */}
+            {/* Header bar */}
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
+              </div>
+              <button
+                onClick={loadStocks}
+                className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
+                disabled={!location || loadingStock}
+              >
+                {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Refresh
+              </button>
+            </div>
+
+            {/* Table */}
             <div className="overflow-auto rounded-xl border">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
@@ -440,7 +378,7 @@ export default function StocksPage() {
                   {stocks.length === 0 && (
                     <tr>
                       <td colSpan={3} className="px-3 py-6 text-center text-gray-600">
-                        {loadingStock ? 'กำลังโหลด…' : 'ไม่มีสินค้าในระบบ'}
+                        {loadingStock ? 'กำลังโหลด…' : 'ไม่มีสินค้าในสาขานี้'}
                       </td>
                     </tr>
                   )}
@@ -453,7 +391,6 @@ export default function StocksPage() {
         {/* ===== TAB: MOVEMENT HISTORY ===== */}
         {tab === 'movements' && (
           <section className="space-y-4">
-            {/* Filters */}
             <div className="flex flex-wrap items-end gap-3">
               <div className="text-sm text-gray-600">
                 {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
@@ -500,7 +437,6 @@ export default function StocksPage() {
               </div>
             </div>
 
-            {/* Table */}
             <div className="overflow-auto rounded-xl border">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
@@ -545,17 +481,10 @@ export default function StocksPage() {
 
 /** ปุ่ม Set exact (inline) */
 function SetExactButton({
-  qty,
-  onSet,
-  disabled,
-}: {
-  qty: number;
-  onSet: (val: number) => void;
-  disabled?: boolean;
-}) {
+  qty, onSet, disabled,
+}: { qty: number; onSet: (val: number) => void; disabled?: boolean; }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState<string>(() => String(qty));
-
   useEffect(() => { setVal(String(qty)); }, [qty]);
 
   if (!editing) {
@@ -574,7 +503,7 @@ function SetExactButton({
     <div className="flex items-center gap-1">
       <input
         type="number"
-        className="w-20 rounded border px-2 py-1 text-sm"
+        className="w-20 rounded border px-2 py-1 text-sm text-right"
         value={val}
         onChange={(e) => setVal(e.target.value)}
         min={0}

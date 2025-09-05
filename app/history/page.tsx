@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import HeaderMenu from '../components/HeaderMenu';
 
 type LocationRow = { id: string; label: string };
 type HistoryRow = {

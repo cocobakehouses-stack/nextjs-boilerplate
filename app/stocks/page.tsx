@@ -2,7 +2,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import HeaderMenu from '../components/HeaderMenu';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
 import {
@@ -19,24 +18,23 @@ import {
 type StockItem = {
   productId: number;
   name: string;
-  // ปริมาณคงเหลือของสาขาที่เลือก
   qty: number;
-  // ราคาหรือข้อมูลเสริม (optional)
   price?: number;
 };
 
 type MovementRow = {
   id?: string;
-  date: string;   // YYYY-MM-DD
-  time: string;   // HH:mm:ss
+  date: string;
+  time: string;
   location: string;
   productId: number;
   productName: string;
-  delta: number;  // + เพิ่มสต๊อก, - ลดสต๊อก
+  delta: number;
   reason?: string;
   user?: string;
 };
 
+type ProductMini = { id: number; name: string };
 type Tab = 'stock' | 'movements';
 
 function cx(...xs: Array<string | false | null | undefined>) {
@@ -91,7 +89,6 @@ export default function StocksPage() {
       setLoadingStock(false);
     }
   }
-
   useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab]);
 
   async function mutateQty(p: StockItem, kind: 'inc'|'dec'|'set', setTo?: number) {
@@ -99,7 +96,7 @@ export default function StocksPage() {
     const delta = kind === 'inc' ? 1 : kind === 'dec' ? -1 : 0;
     const nextQty = kind === 'set' ? Math.max(0, Number(setTo || 0)) : Math.max(0, p.qty + delta);
 
-    // optimistic update
+    // optimistic
     setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: nextQty } : x));
     setPendingOn(p.productId, true);
 
@@ -123,6 +120,48 @@ export default function StocksPage() {
     }
   }
 
+  // ---------- Quick Restock ----------
+  const [allProducts, setAllProducts] = useState<ProductMini[]>([]);
+  const [restockPid, setRestockPid] = useState<number | ''>('');
+  const [restockQty, setRestockQty] = useState<number>(1);
+  const [restockBusy, setRestockBusy] = useState(false);
+
+  async function loadAllProducts() {
+    try {
+      const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      const list: ProductMini[] = (data?.products || []).map((p: any) => ({ id: p.id, name: p.name }));
+      setAllProducts(list);
+    } catch {
+      setAllProducts([]);
+    }
+  }
+  useEffect(() => { loadAllProducts(); }, []);
+
+  async function restock() {
+    if (!location || !restockPid || !Number.isFinite(restockQty) || restockQty <= 0) return;
+    setRestockBusy(true);
+    try {
+      const body = {
+        location,
+        movements: [{ productId: Number(restockPid), delta: Number(restockQty), reason: 'restock' }],
+      };
+      const res = await fetch('/api/stocks/adjust', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('restock failed');
+      await loadStocks();
+      setRestockPid('');
+      setRestockQty(1);
+    } catch {
+      alert('เพิ่มสต๊อกไม่สำเร็จ');
+    } finally {
+      setRestockBusy(false);
+    }
+  }
+
   // =========================================================
   // ==============   TAB 2: MOVEMENT HISTORY   =============
   // =========================================================
@@ -141,14 +180,13 @@ export default function StocksPage() {
     setMvLoading(true);
     try {
       const q = new URLSearchParams({
-        location: location,
+        location: String(location),
         start: mvStart,
         end: mvEnd,
       }).toString();
       const res = await fetch(`/api/stocks/movements?${q}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const list: MovementRow[] = data?.movements || [];
-      // เรียงเวลาจากใหม่ -> เก่า
       list.sort((a, b) => {
         const ka = `${a.date}T${a.time}`;
         const kb = `${b.date}T${b.time}`;
@@ -162,13 +200,12 @@ export default function StocksPage() {
       setMvLoading(false);
     }
   }
-
   useEffect(() => { if (tab === 'movements') loadMovements(); }, [location, tab]);
 
   const csvHref = useMemo(() => {
     if (!location || !mvStart || !mvEnd) return '#';
     const u = new URL('/api/stocks/movements/csv', window.location.origin);
-    u.searchParams.set('location', location);
+    u.searchParams.set('location', String(location));
     u.searchParams.set('start', mvStart);
     u.searchParams.set('end', mvEnd);
     return u.toString();
@@ -178,24 +215,21 @@ export default function StocksPage() {
   // ======================   RENDER   =======================
   // =========================================================
   return (
-    <main className="min-h-screen bg-[var(--surface-muted)] p-6">
-      <HeaderMenu />
-
-      <div className="max-w-6xl mx-auto bg-white rounded-xl shadow p-6">
-        {/* Title */}
-        <div className="flex items-center justify-between gap-3 mb-4">
+    <main className="min-h-screen">
+      <div className="bg-white rounded-xl shadow border p-4 sm:p-6">
+        {/* Title + Location */}
+        <div className="flex items-start sm:items-center justify-between gap-3 mb-4 flex-wrap">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Boxes className="w-6 h-6 text-[var(--brand)]" />
             Stocks
           </h1>
-          {/* Location */}
-          <div className="min-w-[220px]">
+          <div className="min-w-[220px] w-full sm:w-auto">
             <LocationPicker value={location} onChange={(id) => setLocation(id as LocationId)} />
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-2 mb-6">
+        <div className="flex items-center gap-2 mb-6 flex-wrap">
           <button
             className={cx(
               'px-3 py-2 rounded-lg border text-sm flex items-center gap-2',
@@ -219,13 +253,13 @@ export default function StocksPage() {
         {/* ===== TAB: CURRENT STOCK ===== */}
         {tab === 'stock' && (
           <section className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="text-sm text-gray-600">
                 {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
               </div>
               <button
                 onClick={loadStocks}
-                className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
+                className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50 disabled:opacity-60"
                 disabled={!location || loadingStock}
               >
                 {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -233,6 +267,41 @@ export default function StocksPage() {
               </button>
             </div>
 
+            {/* Quick Restock */}
+            <div className="flex flex-wrap items-end gap-2 border p-3 rounded-lg bg-gray-50">
+              <div className="flex flex-col">
+                <label className="text-xs text-gray-600 mb-1">Product</label>
+                <select
+                  className="rounded border px-3 py-2 bg-white min-w-[220px]"
+                  value={restockPid}
+                  onChange={(e) => setRestockPid(e.target.value ? Number(e.target.value) : '')}
+                  disabled={!location || restockBusy}
+                >
+                  <option value="">— เลือกสินค้า —</option>
+                  {allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col">
+                <label className="text-xs text-gray-600 mb-1">Qty (+)</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="rounded border px-3 py-2 bg-white w-28"
+                  value={restockQty}
+                  onChange={(e) => setRestockQty(Math.max(1, Number(e.target.value)||1))}
+                  disabled={!location || restockBusy}
+                />
+              </div>
+              <button
+                onClick={restock}
+                className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-50"
+                disabled={!location || !restockPid || restockBusy}
+              >
+                {restockBusy ? 'Saving…' : 'Add to stock'}
+              </button>
+            </div>
+
+            {/* Table */}
             <div className="overflow-auto rounded-xl border">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
@@ -267,7 +336,6 @@ export default function StocksPage() {
                             >
                               <Plus className="w-4 h-4" />
                             </button>
-                            {/* Set exact */}
                             <SetExactButton
                               qty={p.qty}
                               onSet={(val) => mutateQty(p, 'set', val)}

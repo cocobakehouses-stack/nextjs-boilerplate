@@ -131,13 +131,29 @@ export default function HistoryPage() {
           />
         </div>
 
-        <button
-          onClick={fetchHistory}
-          className="px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40"
-          disabled={!location || !date || loading}
-        >
-          {loading ? 'กำลังโหลด…' : 'ดูข้อมูล'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={fetchHistory}
+            className="px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40"
+            disabled={!location || !date || loading}
+          >
+            {loading ? 'กำลังโหลด…' : 'ดูข้อมูล'}
+          </button>
+
+          {/* Export CSV (ลิงก์สร้างตรงจาก state) */}
+          <a
+            href={
+              !location || !date
+                ? '#'
+                : `/api/history/csv?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`
+            }
+            onClick={(e) => { if (!location || !date) e.preventDefault(); }}
+            className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
+            aria-disabled={!location || !date}
+          >
+            Export CSV
+          </a>
+        </div>
       </div>
 
       {/* SUMMARY */}
@@ -247,6 +263,24 @@ export default function HistoryPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Duplicate export ปลายตาราง (เผื่อหน้า list ยาว) */}
+        {rows.length > 0 && (
+          <div className="mt-4">
+            <a
+              href={
+                !location || !date
+                  ? '#'
+                  : `/api/history/csv?location=${encodeURIComponent(location)}&date=${encodeURIComponent(date)}`
+              }
+              onClick={(e) => { if (!location || !date) e.preventDefault(); }}
+              className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40 inline-block"
+              aria-disabled={!location || !date}
+            >
+              Export CSV
+            </a>
           </div>
         )}
       </div>

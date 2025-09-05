@@ -1,7 +1,11 @@
+// app/products/page.tsx
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Package, Loader2, Plus, Pencil, Save, X, ArrowUpNarrowWide, ArrowDownWideNarrow } from 'lucide-react';
+import {
+  Package, Loader2, Plus, Pencil, Save, X,
+  ArrowUpNarrowWide, ArrowDownWideNarrow, RotateCw
+} from 'lucide-react';
 import HeaderMenu from '../components/HeaderMenu';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
@@ -47,6 +51,9 @@ export default function ProductsPage() {
       const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       setProducts(data?.products || []);
+    } catch {
+      push({ type: 'error', message: 'โหลดสินค้าไม่สำเร็จ' });
+      setProducts([]);
     } finally {
       setLoading(false);
     }
@@ -84,12 +91,13 @@ export default function ProductsPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ active: next }),
       });
-      if (!res.ok) throw new Error('Toggle failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Toggle failed');
       push({ type: 'success', message: `${p.name} → ${next ? 'Active' : 'Inactive'}` });
-    } catch {
+    } catch (e: any) {
       // revert
       setProducts(prev => prev.map(x => (x.id === p.id ? { ...x, active: current } : x)));
-      push({ type: 'error', message: 'Toggle failed' });
+      push({ type: 'error', message: e?.message || 'Toggle failed' });
     } finally {
       setPendingOn(p.id, false);
     }
@@ -100,7 +108,6 @@ export default function ProductsPage() {
     setEditing(null);
     setForm({ name: '', price: '', active: true });
     setModalOpen(true);
-    // focus name เมื่อเปิด
     setTimeout(() => nameRef.current?.focus(), 0);
   }
   function openEdit(p: Product) {
@@ -124,7 +131,6 @@ export default function ProductsPage() {
     setPendingOn(-1, true);
     try {
       if (editing) {
-        // update
         const res = await fetch(`/api/products/${editing.id}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
@@ -134,7 +140,6 @@ export default function ProductsPage() {
         if (!res.ok) throw new Error(data?.error || 'Update failed');
         push({ type: 'success', message: 'อัปเดตเมนูสำเร็จ' });
       } else {
-        // create
         const res = await fetch('/api/products', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -192,12 +197,7 @@ export default function ProductsPage() {
   }
 
   // ---------- accessibility helpers ----------
-  const sortLabel: Record<SortKey, string> = {
-    id: 'ID',
-    name: 'Name',
-    price: 'Price',
-    active: 'Active',
-  };
+  const sortLabel: Record<SortKey, string> = { id: 'ID', name: 'Name', price: 'Price', active: 'Active' };
   function ariaSortFor(k: SortKey): 'ascending' | 'descending' | 'none' {
     return sortKey === k ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
   }
@@ -215,10 +215,15 @@ export default function ProductsPage() {
   }, [modalOpen, form, editing, modalBusy]);
 
   return (
-    <main className="min-h-screen bg-[var(--surface-muted)] p-6">
-      <HeaderMenu />
+    <main className="min-h-screen bg-[var(--surface-muted)]">
+      {/* Sticky header เหมือนหน้าหลัก */}
+      <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
+        <div className="max-w-6xl mx-auto px-4 py-2">
+          <HeaderMenu />
+        </div>
+      </div>
 
-      <div className="max-w-5xl mx-auto bg-white rounded-xl shadow p-6">
+      <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Package className="w-6 h-6 text-[var(--brand)]" />
@@ -231,6 +236,13 @@ export default function ProductsPage() {
               placeholder="Search…"
               className="px-3 py-2 rounded-lg border bg-white w-56"
             />
+            <button
+              onClick={load}
+              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 inline-flex items-center gap-1"
+              title="Reload"
+            >
+              <RotateCw className="w-4 h-4" /> Reload
+            </button>
             <button
               onClick={openAdd}
               className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 inline-flex items-center gap-1"
@@ -249,7 +261,7 @@ export default function ProductsPage() {
         ) : view.length === 0 ? (
           <div className="p-10 text-center text-gray-600">ไม่พบสินค้า</div>
         ) : (
-          <div className="overflow-auto rounded-xl border">
+          <div className="overflow-auto rounded-xl border bg-white">
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 text-gray-700">
                 <tr>
@@ -362,7 +374,6 @@ export default function ProductsPage() {
             <input
               value={form.price}
               onChange={(e) => {
-                // อนุญาตเฉพาะเลขและจุดเดียว
                 const v = e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
                 setForm(s => ({ ...s, price: v }));
               }}

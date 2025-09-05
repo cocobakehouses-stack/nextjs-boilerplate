@@ -111,16 +111,15 @@ export default function ReportsPage() {
   // ===== SORT BILL DESC =====
   const sortedRows = useMemo(() => [...rows].sort((a, b) => Number(b.billNo) - Number(a.billNo)), [rows]);
 
-  // ===== EXPORT LINKS (CSV / PDF) =====
-  const { csvHref, pdfHref, filenameCSV, filenamePDF } = useMemo(() => {
+  // ===== EXPORT CSV =====
+  const { csvHref, filenameCSV } = useMemo(() => {
     if (!locId || !rangeStart || !rangeEnd) {
-      return { csvHref: '#', pdfHref: '#', filenameCSV: '', filenamePDF: '' };
+      return { csvHref: '#', filenameCSV: '' };
     }
     const qs = new URLSearchParams({ location: String(locId), start: rangeStart, end: rangeEnd });
     const csv = `/api/reports/csv?${qs.toString()}`;
-    const pdf = `/api/reports/pdf?${qs.toString()}`;
     const fnBase = `reports_${locId}_${rangeStart}_${rangeEnd}`;
-    return { csvHref: csv, pdfHref: pdf, filenameCSV: `${fnBase}.csv`, filenamePDF: `${fnBase}.pdf` };
+    return { csvHref: csv, filenameCSV: `${fnBase}.csv` };
   }, [locId, rangeStart, rangeEnd]);
 
   return (
@@ -175,7 +174,6 @@ export default function ReportsPage() {
               {loading ? 'Loading…' : 'Generate'}
             </button>
 
-            {/* Export buttons (แบบ History) */}
             <a
               href={csvHref}
               download={filenameCSV}
@@ -185,28 +183,12 @@ export default function ReportsPage() {
             >
               Export CSV
             </a>
-            <a
-              href={pdfHref}
-              download={filenamePDF}
-              onClick={(e) => { if (pdfHref === '#') e.preventDefault(); }}
-              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
-              aria-disabled={!locId || !rangeStart || !rangeEnd}
-            >
-              Export PDF
-            </a>
           </div>
         </div>
 
         {/* Summary */}
-        {loading && (
-          <div className="space-y-2 mb-6">
-            <div className="h-6 bg-gray-100 rounded animate-pulse" />
-            <div className="h-6 bg-gray-100 rounded animate-pulse" />
-          </div>
-        )}
         {rows.length > 0 && !loading && (
           <div className="rounded-xl border bg-white p-4 mb-6 space-y-6">
-            {/* Grand Summary */}
             <section>
               <h2 className="font-semibold mb-2">Summary</h2>
               <div>Bills: {grand.count} | Total Qty: {grand.totalQty}</div>
@@ -220,7 +202,6 @@ export default function ReportsPage() {
               )}
             </section>
 
-            {/* Product Summary + Lineman */}
             <section className="space-y-3">
               <h3 className="font-semibold">Products Sold (All)</h3>
               <div className="bg-[var(--surface-muted)] rounded-lg p-3">
@@ -228,7 +209,6 @@ export default function ReportsPage() {
                   {Object.entries(productMap).map(([name, v]) => (
                     <li key={name}>{name}: {v.qty} ชิ้น = {fmt(v.amount)} บาท</li>
                   ))}
-                  {Object.keys(productMap).length === 0 && <li className="text-gray-500">No product rows</li>}
                 </ul>
                 <div className="mt-2 font-semibold">
                   รวมทั้งหมด: {totalQtyAll} ชิ้น = {fmt(totalAmountAll)} บาท

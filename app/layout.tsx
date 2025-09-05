@@ -4,19 +4,9 @@ import type { Metadata } from 'next';
 import HeaderMenu from './components/HeaderMenu';
 // app/layout.tsx (เฉพาะส่วน body)
 import { ToastProvider } from './components/Toast';
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <body>
-        <ToastProvider>
-          {children}
-        </ToastProvider>
-      </body>
-    </html>
-  );
-}
+
 export const metadata: Metadata = {
-  title: 'Coco Bakehouse POS',
+  title: 'Coco Bakehouse Dashboard',
   description: 'Internal POS & reports',
 };
 

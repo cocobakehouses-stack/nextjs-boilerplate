@@ -59,7 +59,7 @@ export default function ReportsPage() {
     }
   }
 
-  // ---------- GRAND SUMMARY ----------
+  // ===== GRAND SUMMARY =====
   const grand = useMemo(() => {
     if (rows.length === 0) {
       return { count: 0, totalQty: 0, totalAmount: 0, freebiesAmount: 0, byPayment: {} as Record<string, number> };
@@ -84,7 +84,7 @@ export default function ReportsPage() {
     return { count, totalQty, totalAmount, freebiesAmount, byPayment };
   }, [rows]);
 
-  // ---------- PRODUCT SUMMARY + LINEMAN ----------
+  // ===== PRODUCT SUMMARY + LINEMAN SPLIT =====
   const { productMap, totalQtyAll, totalAmountAll, linemanQty, linemanAmount } = useMemo(() => {
     const map: Record<string, { qty: number; amount: number }> = {};
     let totalQty = 0;
@@ -108,8 +108,20 @@ export default function ReportsPage() {
     return { productMap: map, totalQtyAll: totalQty, totalAmountAll: totalAmount, linemanQty: lmQty, linemanAmount: lmAmount };
   }, [rows]);
 
-  // ---------- SORT BILL DESC ----------
+  // ===== SORT BILL DESC =====
   const sortedRows = useMemo(() => [...rows].sort((a, b) => Number(b.billNo) - Number(a.billNo)), [rows]);
+
+  // ===== EXPORT LINKS (CSV / PDF) =====
+  const { csvHref, pdfHref, filenameCSV, filenamePDF } = useMemo(() => {
+    if (!locId || !rangeStart || !rangeEnd) {
+      return { csvHref: '#', pdfHref: '#', filenameCSV: '', filenamePDF: '' };
+    }
+    const qs = new URLSearchParams({ location: String(locId), start: rangeStart, end: rangeEnd });
+    const csv = `/api/reports/csv?${qs.toString()}`;
+    const pdf = `/api/reports/pdf?${qs.toString()}`;
+    const fnBase = `reports_${locId}_${rangeStart}_${rangeEnd}`;
+    return { csvHref: csv, pdfHref: pdf, filenameCSV: `${fnBase}.csv`, filenamePDF: `${fnBase}.pdf` };
+  }, [locId, rangeStart, rangeEnd]);
 
   return (
     <main className="min-h-screen bg-[var(--surface-muted)]">
@@ -153,14 +165,36 @@ export default function ReportsPage() {
             <input type="date" className="rounded border px-3 py-2 bg-white" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
           </div>
 
-          <button
-            onClick={load}
-            className="ml-auto px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40 flex items-center gap-2"
-            disabled={!locId || !rangeStart || !rangeEnd || loading}
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {loading ? 'Loading…' : 'Generate'}
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={load}
+              className="px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40 flex items-center gap-2"
+              disabled={!locId || !rangeStart || !rangeEnd || loading}
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {loading ? 'Loading…' : 'Generate'}
+            </button>
+
+            {/* Export buttons (แบบ History) */}
+            <a
+              href={csvHref}
+              download={filenameCSV}
+              onClick={(e) => { if (csvHref === '#') e.preventDefault(); }}
+              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
+              aria-disabled={!locId || !rangeStart || !rangeEnd}
+            >
+              Export CSV
+            </a>
+            <a
+              href={pdfHref}
+              download={filenamePDF}
+              onClick={(e) => { if (pdfHref === '#') e.preventDefault(); }}
+              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
+              aria-disabled={!locId || !rangeStart || !rangeEnd}
+            >
+              Export PDF
+            </a>
+          </div>
         </div>
 
         {/* Summary */}

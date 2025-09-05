@@ -1,4 +1,5 @@
 // app/layout.tsx
+import Providers from './providers';           // ⬅️ import client providers
 import './globals.css';
 import type { Metadata } from 'next';
 import HeaderMenu from './components/HeaderMenu';
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="th">
       <body className="min-h-screen bg-[var(--surface-muted)] text-[var(--text)] antialiased">
         {/* Global Sticky Header */}
+                <Providers> {children} </Providers>
         <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur">
           <div className="max-w-6xl mx-auto px-4 py-2">
             <HeaderMenu />

@@ -37,7 +37,6 @@ type MovementRow = {
 };
 
 type Tab = 'stock' | 'movements';
-
 type Product = { id: number; name: string; price: number; active?: boolean };
 
 function cx(...xs: Array<string | false | null | undefined>) {
@@ -63,6 +62,24 @@ export default function StocksPage() {
   }, [location]);
 
   // =========================================================
+  // ================   PRODUCTS (อ้างอิง)   =================
+  // =========================================================
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+
+  async function loadAllProducts() {
+    setLoadingProducts(true);
+    try {
+      const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      setAllProducts(Array.isArray(data?.products) ? data.products : []);
+    } finally {
+      setLoadingProducts(false);
+    }
+  }
+  useEffect(() => { loadAllProducts(); }, []);
+
+  // =========================================================
   // ================   TAB 1: CURRENT STOCK   ===============
   // =========================================================
   const [loadingStock, setLoadingStock] = useState(false);
@@ -78,13 +95,43 @@ export default function StocksPage() {
     });
   };
 
+  // ⬇️ สำคัญ: รวม "สินค้าทั้งหมด" เข้ากับ "ยอดสต็อกของสาขา"
   async function loadStocks() {
     if (!location) return;
     setLoadingStock(true);
     try {
+      // ดึงยอดสต็อกของสาขา
       const res = await fetch(`/api/stocks?location=${encodeURIComponent(location)}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
-      setStocks(data?.stocks || []);
+      const existing: Array<{ productId: number; name: string; qty: number }> = data?.stocks || [];
+
+      // ถ้ายังไม่เคยโหลด products ให้ไปโหลดมาก่อน
+      let products = allProducts;
+      if (products.length === 0) {
+        const pRes = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
+        const pData = await pRes.json().catch(() => ({}));
+        products = Array.isArray(pData?.products) ? pData.products : [];
+        setAllProducts(products);
+      }
+
+      // ทำ map จากสต็อกปัจจุบัน
+      const map = new Map<number, { qty: number; name: string }>();
+      for (const row of existing) map.set(row.productId, { qty: row.qty, name: row.name });
+
+      // รวม: ทุกสินค้า → ถ้าไม่มีในสาขานี้ ให้ qty = 0
+      const merged: StockItem[] = products.map(p => {
+        const found = map.get(p.id);
+        return {
+          productId: p.id,
+          name: found?.name ?? p.name,
+          qty: found?.qty ?? 0,
+          price: p.price,
+        };
+      });
+
+      // เรียงชื่อให้ค้นง่าย
+      merged.sort((a, b) => a.name.localeCompare(b.name, 'th'));
+      setStocks(merged);
     } catch (e) {
       console.error('Load stocks error', e);
       setStocks([]);
@@ -93,7 +140,7 @@ export default function StocksPage() {
     }
   }
 
-  useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab]);
+  useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab, allProducts.length]);
 
   async function mutateQty(p: StockItem, kind: 'inc'|'dec'|'set', setTo?: number) {
     if (!location) return;
@@ -105,6 +152,7 @@ export default function StocksPage() {
     setPendingOn(p.productId, true);
 
     try {
+      // หมายเหตุ: endpoint ฝั่ง server จะ "สร้างแถวใหม่" ให้ถ้ายังไม่เคยมีสินค้านี้ในโลเคชั่น
       const body: any = kind === 'set'
         ? { setTo: nextQty, reason: 'manual set' }
         : { delta, reason: delta > 0 ? 'manual +1' : 'manual -1' };
@@ -125,24 +173,8 @@ export default function StocksPage() {
   }
 
   // ---------- Quick Add / Set (เลือกสินค้า + ใส่จำนวน) ----------
-  const [allProducts, setAllProducts] = useState<Product[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(false);
   const [selectedPid, setSelectedPid] = useState<number | ''>('');
   const [qtyInput, setQtyInput] = useState<string>('');
-
-  useEffect(() => {
-    async function loadProducts() {
-      setLoadingProducts(true);
-      try {
-        const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        setAllProducts(Array.isArray(data?.products) ? data.products : []);
-      } finally {
-        setLoadingProducts(false);
-      }
-    }
-    loadProducts();
-  }, []);
 
   const selectedProduct = useMemo(
     () => allProducts.find(p => p.id === selectedPid),
@@ -154,8 +186,8 @@ export default function StocksPage() {
     const n = Number(qtyInput);
     if (!Number.isFinite(n) || n <= 0) { alert('กรุณาใส่จำนวนเป็นตัวเลขมากกว่า 0'); return; }
 
-    // call bulk adjust (+=)
     try {
+      // ใช้ bulk adjust → จะสร้างแถวใน STOCKS ให้หากยังไม่มี
       const res = await fetch(`/api/stocks/adjust`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -165,8 +197,7 @@ export default function StocksPage() {
         }),
       });
       if (!res.ok) throw new Error('Adjust failed');
-      // refresh
-      await loadStocks();
+      await loadStocks(); // รีเฟรชเพื่อให้สินค้าที่เพิ่งเพิ่มโชว์ในตาราง
       setQtyInput('');
     } catch (e) {
       console.error(e);
@@ -361,6 +392,7 @@ export default function StocksPage() {
               )}
             </div>
 
+            {/* ตารางจะ “มีสินค้าครบทุกตัว” ของระบบ; ถ้ายังไม่เคยมีในสาขา → Qty = 0 */}
             <div className="overflow-auto rounded-xl border">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
@@ -408,7 +440,7 @@ export default function StocksPage() {
                   {stocks.length === 0 && (
                     <tr>
                       <td colSpan={3} className="px-3 py-6 text-center text-gray-600">
-                        {loadingStock ? 'กำลังโหลด…' : 'ไม่มีสินค้าในสาขานี้'}
+                        {loadingStock ? 'กำลังโหลด…' : 'ไม่มีสินค้าในระบบ'}
                       </td>
                     </tr>
                   )}

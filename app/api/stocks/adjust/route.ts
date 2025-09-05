@@ -1,7 +1,7 @@
 // app/api/stocks/adjust/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getAuth, ensureSheetExists, TZ } from '../../../lib/sheets';
+import { getAuth, TZ } from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +20,46 @@ function nowDateTimeBangkok() {
     hour12: false,
   }).format(now).replace(/\./g, ':');
   return { date, time, iso: now.toISOString() };
+}
+
+// --- helper สำหรับเขียน header ---
+function colLetter(n: number) {
+  let s = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+async function ensureSheetWithHeaders(
+  sheets: any,               // ใช้ any เพื่อลด TS friction
+  spreadsheetId: string,
+  title: string,
+  headers: string[]
+) {
+  // เช็คว่ามีชีทนี้หรือยัง
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const exists = (meta.data.sheets || []).some(
+    (s: any) => s.properties?.title === title
+  );
+  if (!exists) {
+    // สร้างชีทใหม่
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title } } }],
+      },
+    });
+  }
+  // เขียน header แถวแรกเสมอ (update ทับได้)
+  const endCol = colLetter(headers.length);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${a1Sheet(title)}!A1:${endCol}1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [headers] },
+  });
 }
 
 type Movement = {
@@ -44,9 +84,13 @@ export async function PATCH(req: Request) {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // ensure tabs exist
-    await ensureSheetExists(sheets, spreadsheetId, STOCKS_TAB, ['locationId','productId','qty','updatedAt']);
-    await ensureSheetExists(sheets, spreadsheetId, MOVEMENTS_TAB, ['date','time','locationId','productId','delta','reason','billNo']);
+    // ensure tabs exist + headers
+    await ensureSheetWithHeaders(sheets, spreadsheetId, STOCKS_TAB, [
+      'locationId', 'productId', 'qty', 'updatedAt'
+    ]);
+    await ensureSheetWithHeaders(sheets, spreadsheetId, MOVEMENTS_TAB, [
+      'date', 'time', 'locationId', 'productId', 'delta', 'reason', 'billNo'
+    ]);
 
     // โหลด STOCKS ปัจจุบัน
     const stockRes = await sheets.spreadsheets.values.get({
@@ -69,6 +113,8 @@ export async function PATCH(req: Request) {
     const updates: { rowIndex: number; values: any[] }[] = [];
     const appendRows: any[][] = [];
 
+    let nextAppendRowIndex = dataRows.length + 2;
+
     for (const m of body.movements) {
       const key = `${body.location}_${m.productId}`;
       const cur = stockMap[key];
@@ -82,11 +128,12 @@ export async function PATCH(req: Request) {
         });
         stockMap[key].qty = newQty;
       } else {
-        // append row ใหม่ใน STOCKS
+        // แถวใหม่ใน STOCKS (คำนวณตำแหน่งแถวต่อท้าย)
         updates.push({
-          rowIndex: dataRows.length + updates.length + 2,
+          rowIndex: nextAppendRowIndex++,
           values: [body.location, m.productId, newQty, iso],
         });
+        stockMap[key] = { rowIndex: nextAppendRowIndex - 1, qty: newQty };
       }
 
       // append ลง MOVEMENTS
@@ -96,7 +143,7 @@ export async function PATCH(req: Request) {
       ]);
     }
 
-    // เขียนกลับ STOCKS
+    // เขียนกลับ STOCKS (ทีละแถว)
     for (const u of updates) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
@@ -106,7 +153,7 @@ export async function PATCH(req: Request) {
       });
     }
 
-    // append MOVEMENTS
+    // append MOVEMENTS ทั้งก้อน
     if (appendRows.length) {
       await sheets.spreadsheets.values.append({
         spreadsheetId,

@@ -1,82 +1,135 @@
 // app/api/stocks/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import {
-  getAuth,
-  ensureSheetExistsIdempotent, // ✅ ใช้ตัว idempotent เท่านั้น
-} from '../../lib/sheets';
+import { getAuth, a1Sheet } from '../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const STOCKS_TAB = 'STOCKS';
 const PRODUCTS_TAB = 'PRODUCTS';
+const STOCKS_TAB = 'STOCKS';
 
-function a1(title: string) {
-  return `'${String(title).replace(/'/g, "''")}'`;
+/** Idempotent: มีอยู่แล้วไม่ add ซ้ำ */
+async function ensureTabExists(
+  sheets: any,
+  spreadsheetId: string,
+  title: string
+) {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties.title',
+  });
+  const exists = (meta.data.sheets ?? []).some(
+    (s: any) => s.properties?.title === title
+  );
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+    });
+  }
 }
 
-// แปลงเลขแบบปลอดภัย
-function n(x: any) {
-  const v = Number(String(x ?? '').replace(/,/g, '').trim());
-  return Number.isFinite(v) ? v : 0;
+/** เซ็ต header ให้ตรงสเปค (เรียกซ้ำได้ ปลอดภัย) */
+async function ensureHeader(
+  sheets: any,
+  spreadsheetId: string,
+  title: string,
+  header: string[],
+  a1: string
+) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${a1Sheet(title)}!${a1}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [header] },
+  });
 }
 
+function toInt(x: any) {
+  const n = Number(String(x ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(n) ? Math.floor(n) : 0;
+}
+function toNum(x: any) {
+  const n = Number(String(x ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * GET /api/stocks?location=FLAGSHIP
+ * คืน { stocks: [{productId, name, price, qty}] }
+ *
+ * สคีมาในชีต:
+ * - PRODUCTS: A:ID, B:Name, C:Price
+ * - STOCKS  : A:Location, B:ProductID, C:Qty   (หนึ่งแถวต่อสินค้า-สาขา)
+ */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const location = (url.searchParams.get('location') || '').toUpperCase();
+    const location = (url.searchParams.get('location') || '').trim().toUpperCase();
+
     if (!location) {
-      return NextResponse.json({ error: 'missing location' }, { status: 400 });
+      return NextResponse.json({ error: 'location is required' }, { status: 400 });
     }
 
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // ✅ ให้แน่ใจว่ามีทั้งสองแท็บแบบไม่เพิ่มซ้ำ
-    await ensureSheetExistsIdempotent(sheets, spreadsheetId, STOCKS_TAB);
-    await ensureSheetExistsIdempotent(sheets, spreadsheetId, PRODUCTS_TAB);
+    // ✅ ทำให้แน่ใจว่าแท็บมีจริง แต่ไม่ add ซ้ำ
+    await ensureTabExists(sheets, spreadsheetId, PRODUCTS_TAB);
+    await ensureTabExists(sheets, spreadsheetId, STOCKS_TAB);
 
-    // อ่าน PRODUCTS: สมมติคอลัมน์ A:id, B:name, C:price
+    // ✅ เขียน header (เรียกซ้ำได้ ไม่พัง)
+    await ensureHeader(
+      sheets, spreadsheetId, PRODUCTS_TAB,
+      ['ID', 'Name', 'Price'],
+      'A1:C1'
+    );
+    await ensureHeader(
+      sheets, spreadsheetId, STOCKS_TAB,
+      ['Location', 'ProductID', 'Qty'],
+      'A1:C1'
+    );
+
+    // อ่าน PRODUCTS
     const pRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${a1(PRODUCTS_TAB)}!A:C`,
+      range: `${a1Sheet(PRODUCTS_TAB)}!A:C`,
     });
-    const pRows = (pRes.data.values || []).slice(1); // skip header
-    const products = pRows.map((r: any[]) => ({
-      id: n(r?.[0]),
-      name: (r?.[1] ?? '').toString().trim(),
-      price: n(r?.[2]),
-    })).filter(p => p.id);
+    const pRows = (pRes.data.values || []).slice(1);
+    const products = pRows
+      .map((r: any[]) => ({
+        id: toInt(r?.[0]),
+        name: (r?.[1] ?? '').toString().trim(),
+        price: toNum(r?.[2]),
+      }))
+      .filter((p) => p.id > 0 && p.name);
 
-    // อ่าน STOCKS (movement log): สมมติคอลัมน์ A:Date, B:Time, C:Location, D:ProductId, E:ProductName, F:Delta, G:Reason, H:User
+    // อ่าน STOCKS ของสาขานี้
     const sRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${a1(STOCKS_TAB)}!A:H`,
+      range: `${a1Sheet(STOCKS_TAB)}!A:C`,
     });
     const sRows = (sRes.data.values || []).slice(1);
-
-    // สรุปยอดคงเหลือตาม location = sum(delta)
-    const byPid = new Map<number, number>();
+    const qtyByPid = new Map<number, number>();
     for (const r of sRows) {
-      const loc = (r?.[2] ?? '').toString().trim().toUpperCase();
+      const loc = (r?.[0] ?? '').toString().trim().toUpperCase();
       if (loc !== location) continue;
-      const pid = n(r?.[3]);
-      const delta = n(r?.[5]);
-      if (!pid) continue;
-      byPid.set(pid, (byPid.get(pid) || 0) + delta);
+      const pid = toInt(r?.[1]);
+      const qty = toInt(r?.[2]);
+      if (pid > 0) qtyByPid.set(pid, qty);
     }
 
-    // คืนรูปแบบเดิม { productId, name, price, qty }
-    const stocks = products.map(p => ({
+    // join เป็นรูปแบบที่หน้า UI ต้องการ
+    const stocks = products.map((p) => ({
       productId: p.id,
       name: p.name,
       price: p.price,
-      qty: Math.max(0, byPid.get(p.id) || 0),
+      qty: qtyByPid.get(p.id) ?? 0,
     }));
 
-    return NextResponse.json({ location, stocks }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({ stocks }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {
     console.error('GET /api/stocks error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });

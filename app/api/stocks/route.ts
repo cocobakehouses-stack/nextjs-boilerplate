@@ -1,7 +1,12 @@
 // app/api/stock/route.ts
+// app/api/stocks/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getAuth, ensureSheetExistsIdempotent } from '../../lib/sheets';
+import {
+  getAuth,
+  ensureSheetExists,               // ⬅️ เพิ่มอันนี้เข้ามา
+  ensureSheetExistsIdempotent,      // ใช้กับ STOCKS เพื่อกันชื่อซ้ำ
+} from '../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

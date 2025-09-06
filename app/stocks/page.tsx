@@ -22,6 +22,7 @@ type StockItem = {
   qty: number;
   price?: number;
 };
+type Product = { id:number; name:string; price:number; active?:boolean };
 
 type MovementRow = {
   id?: string;
@@ -35,7 +36,6 @@ type MovementRow = {
   user?: string;
 };
 
-type Product = { id: number; name: string; price: number; active?: boolean }; // ⬅️ ใช้สำหรับ Add panel
 type Tab = 'stock' | 'movements';
 
 function cx(...xs: Array<string | false | null | undefined>) {
@@ -90,13 +90,65 @@ export default function StocksPage() {
   }
   useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab]);
 
+  // ---- Products for Add Panel ----
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingProducts(true);
+        const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        setProducts(Array.isArray(data?.products) ? data.products : []);
+      } finally {
+        setLoadingProducts(false);
+      }
+    })();
+  }, []);
+
+  // ---- Add Stock Panel state ----
+  const [addPid, setAddPid] = useState<number | ''>('');
+  const [addQty, setAddQty] = useState<string>('');
+  const [addReason, setAddReason] = useState<string>('opening add');
+  const [adding, setAdding] = useState(false);
+
+  async function addStock() {
+    if (!location) { alert('กรุณาเลือกสถานที่'); return; }
+    const pid = Number(addPid);
+    const qty = Math.floor(Number(addQty));
+    if (!pid || !Number.isFinite(qty) || qty <= 0) {
+      alert('กรุณาเลือกสินค้าและใส่จำนวน (>0)'); return;
+    }
+    setAdding(true);
+    try {
+      const payload = {
+        location,
+        movements: [{ productId: pid, delta: qty, reason: addReason || 'manual add' }],
+      };
+      const res = await fetch('/api/stocks/adjust', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'เพิ่มสต๊อกไม่สำเร็จ');
+      setAddPid(''); setAddQty('');
+      await loadStocks();
+    } catch (e:any) {
+      alert(e?.message || 'เพิ่มสต๊อกไม่สำเร็จ');
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  // ---- per-row quick mutate ----
   async function mutateQty(p: StockItem, kind: 'inc'|'dec'|'set', setTo?: number) {
     if (!location) return;
     const delta = kind === 'inc' ? 1 : kind === 'dec' ? -1 : 0;
     const nextQty = kind === 'set' ? Math.max(0, Number(setTo || 0)) : Math.max(0, p.qty + delta);
 
-    // optimistic
-    setStocks(prev => prev.map(x => x.productId === p.productId ? ({ ...x, qty: nextQty }) : x));
+    // optimistic update
+    setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: nextQty } : x));
     setPendingOn(p.productId, true);
 
     try {
@@ -112,64 +164,10 @@ export default function StocksPage() {
       if (!res.ok) throw new Error('Update stock failed');
     } catch (e) {
       // revert
-      setStocks(prev => prev.map(x => x.productId === p.productId ? ({ ...x, qty: p.qty }) : x));
+      setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: p.qty } : x));
       alert('อัปเดตสต๊อกไม่สำเร็จ');
     } finally {
       setPendingOn(p.productId, false);
-    }
-  }
-
-  // ---------- Add Stock panel states ----------
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(true);
-  const [addPid, setAddPid] = useState<number | ''>('');
-  const [addQty, setAddQty] = useState<string>('');
-  const [addReason, setAddReason] = useState<string>('opening add');
-  const [adding, setAdding] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoadingProducts(true);
-        const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        setProducts(Array.isArray(data?.products) ? data.products : []);
-      } finally {
-        setLoadingProducts(false);
-      }
-    })();
-  }, []);
-
-  async function addStock() {
-    if (!location) { alert('กรุณาเลือกสถานที่'); return; }
-    const pid = Number(addPid);
-    const qty = Math.floor(Number(addQty));
-    if (!pid || !Number.isFinite(qty) || qty <= 0) {
-      alert('กรุณาเลือกสินค้าและใส่จำนวนที่ถูกต้อง (> 0)');
-      return;
-    }
-    setAdding(true);
-    try {
-      const payload = {
-        location,
-        movements: [{ productId: pid, delta: qty, reason: addReason || 'manual add' }],
-      };
-      const res = await fetch('/api/stocks/adjust', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'เพิ่มสต๊อกไม่สำเร็จ');
-
-      // clear & refresh
-      setAddPid('');
-      setAddQty('');
-      await loadStocks();
-    } catch (e: any) {
-      alert(e?.message || 'เพิ่มสต๊อกไม่สำเร็จ');
-    } finally {
-      setAdding(false);
     }
   }
 
@@ -190,7 +188,7 @@ export default function StocksPage() {
     if (!location || !mvStart || !mvEnd) return;
     setMvLoading(true);
     try {
-      const q = new URLSearchParams({ location: location, start: mvStart, end: mvEnd }).toString();
+      const q = new URLSearchParams({ location, start: mvStart, end: mvEnd }).toString();
       const res = await fetch(`/api/stocks/movements?${q}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const list: MovementRow[] = data?.movements || [];
@@ -228,8 +226,7 @@ export default function StocksPage() {
             <Boxes className="w-6 h-6 text-[var(--brand)]" />
             Products & Stock
           </h1>
-          {/* Location */}
-          <div className="min-w-[240px]">
+          <div className="min-w-[220px]">
             <LocationPicker value={location} onChange={(id) => setLocation(id as LocationId)} />
           </div>
         </div>
@@ -252,13 +249,69 @@ export default function StocksPage() {
             )}
             onClick={() => setTab('movements')}
           >
-            <HistoryIcon className="w-4 h-4" /> History
+            <HistoryIcon className="w-4 h-4" /> Movements
           </button>
         </div>
 
         {/* ===== TAB: CURRENT STOCK ===== */}
         {tab === 'stock' && (
           <section className="space-y-4">
+            {/* Add Stock Panel */}
+            <div className="rounded-xl border bg-[var(--surface-muted)] p-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-[260px]">
+                  <label className="block text-sm text-gray-600 mb-1">Product</label>
+                  <select
+                    value={addPid}
+                    onChange={(e)=> setAddPid(e.target.value ? Number(e.target.value) : '')}
+                    disabled={!location || loadingProducts}
+                    className="w-full rounded border px-3 py-2 bg-white"
+                  >
+                    <option value="">{loadingProducts ? 'Loading…' : 'เลือกสินค้า…'}</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} — {p.price}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Qty (+)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    className="w-32 rounded border px-3 py-2 bg-white"
+                    value={addQty}
+                    onChange={(e)=> setAddQty(e.target.value)}
+                    placeholder="จำนวน"
+                    disabled={!location}
+                  />
+                </div>
+
+                <div className="flex-1 min-w-[220px]">
+                  <label className="block text-sm text-gray-600 mb-1">Reason</label>
+                  <input
+                    className="w-full rounded border px-3 py-2 bg-white"
+                    value={addReason}
+                    onChange={(e)=> setAddReason(e.target.value)}
+                    placeholder="เช่น opening add"
+                    disabled={!location}
+                  />
+                </div>
+
+                <div className="ml-auto">
+                  <button
+                    onClick={addStock}
+                    disabled={!location || !addPid || !addQty || adding}
+                    className="px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40"
+                  >
+                    {adding ? 'กำลังบันทึก…' : 'Add Stock'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* header tools */}
             <div className="flex items-center justify-between">
               <div className="text-sm text-gray-600">
                 {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
@@ -273,62 +326,7 @@ export default function StocksPage() {
               </button>
             </div>
 
-            {/* === Add Stock Panel (อยู่ตรงนี้) === */}
-            <div className="rounded-xl border bg-[var(--surface-muted)] p-4">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-[260px]">
-                  <label className="block text-sm text-gray-600 mb-1">Product</label>
-                  <select
-                    value={addPid}
-                    onChange={(e)=> setAddPid(e.target.value ? Number(e.target.value) : '')}
-                    disabled={!location || loadingProducts}
-                    className="w-full rounded border px-3 py-2 bg-white"
-                  >
-                    <option value="">{loadingProducts ? 'Loading…' : 'เลือกสินค้า…'}</option>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} (#{p.id})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Quantity (+)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={addQty}
-                    onChange={(e)=> setAddQty(e.target.value)}
-                    disabled={!location}
-                    className="w-28 rounded border px-3 py-2 text-right"
-                    placeholder="เช่น 12"
-                  />
-                </div>
-
-                <div className="flex-1 min-w-[220px]">
-                  <label className="block text-sm text-gray-600 mb-1">Reason (optional)</label>
-                  <input
-                    value={addReason}
-                    onChange={(e)=> setAddReason(e.target.value)}
-                    className="w-full rounded border px-3 py-2"
-                    placeholder="opening add / delivery / manual"
-                  />
-                </div>
-
-                <div className="ml-auto">
-                  <button
-                    onClick={addStock}
-                    disabled={!location || adding}
-                    className="px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40"
-                  >
-                    {adding ? 'Adding…' : 'Add to Stock'}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* ตารางสต๊อก */}
+            {/* table */}
             <div className="overflow-auto rounded-xl border">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">

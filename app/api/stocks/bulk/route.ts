@@ -37,7 +37,7 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ ok:true });
   } catch (e:any) {
-    console.error('PATCH /api/stock/bulk error', e?.message||e);
+    console.error('PATCH /api/stocks/bulk error', e?.message||e);
     return NextResponse.json({ error:'failed' }, { status:500 });
   }
 }

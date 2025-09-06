@@ -50,7 +50,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ stock: list }, { headers:{ 'Cache-Control':'no-store' }});
   } catch (e:any) {
-    console.error('GET /api/stock error', e?.message||e);
+    console.error('GET /api/stocks error', e?.message||e);
     return NextResponse.json({ error:'failed' }, { status:500 });
   }
 }

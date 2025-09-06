@@ -258,7 +258,7 @@ export default function ProductsPage() {
     setStockDirty(false);
     try {
       // สมมติ endpoint: GET /api/stock?location=LOC
-      const res = await fetch(`/api/stock?location=${encodeURIComponent(stockLoc)}`, { cache: 'no-store' });
+      const res = await fetch(`/api/stocks?location=${encodeURIComponent(stockLoc)}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const list: StockRow[] = data?.stock || [];
       setStockRows(list);
@@ -285,9 +285,9 @@ export default function ProductsPage() {
     if (!stockLoc) return;
     setStockPending(true);
     try {
-      // สมมติ endpoint: PATCH /api/stock/bulk  { location, updates: [{productId, qty}] }
+      // สมมติ endpoint: PATCH /api/stocks/bulk  { location, updates: [{productId, qty}] }
       const updates = stockRows.map(r => ({ productId: r.productId, qty: r.qty }));
-      const res = await fetch('/api/stock/bulk', {
+      const res = await fetch('/api/stocks/bulk', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ location: stockLoc, updates }),
@@ -306,8 +306,8 @@ export default function ProductsPage() {
 
   const stockCsvHref = useMemo(() => {
     if (!stockLoc) return '#';
-    // สมมติ endpoint: /api/stock/csv?location=LOC
-    return `/api/stock/csv?location=${encodeURIComponent(stockLoc)}`;
+    // สมมติ endpoint: /api/stocks/csv?location=LOC
+    return `/api/stocks/csv?location=${encodeURIComponent(stockLoc)}`;
   }, [stockLoc]);
 
   // =========================

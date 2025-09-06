@@ -35,7 +35,7 @@ export async function GET(req: Request) {
       }
     });
   } catch (e:any) {
-    console.error('GET /api/stock/csv error', e?.message||e);
+    console.error('GET /api/stocks/csv error', e?.message||e);
     return NextResponse.json({ error:'failed' }, { status:500 });
   }
 }

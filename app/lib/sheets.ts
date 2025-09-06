@@ -152,7 +152,6 @@ export async function listLocationIds(
     range: `Locations!A:B`,
   });
 
-  // ✅ ใส่ชนิดให้ rows และพารามิเตอร์ใน map เพื่อกัน implicit any
   const rows: (string | undefined)[][] = (res.data.values || []).slice(1) as (string | undefined)[][];
   const ids = rows
     .map((r: (string | undefined)[]) => (r?.[0] ?? '').toString().trim().toUpperCase())
@@ -303,13 +302,23 @@ export function aggregateByPeriod(
   for (const [key, rs] of buckets) {
     out.push({ key, totals: summarizeTotals(rs) });
   }
-  // ===== Idempotent sheet ensure (ไม่ add ซ้ำ) =====
+
+  // sort key asc
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return out;
+}
+
+/** ---------- Stocks helpers (ใหม่): idempotent ensure ---------- */
+/**
+ * สร้างชีตใหม่เฉพาะเมื่อยังไม่มี (และกัน race condition/ซ้ำซ้อน)
+ * ใช้แทน ensureSheetExists สำหรับกรณีที่ error: "sheet ... already exists"
+ */
 export async function ensureSheetExistsIdempotent(
   sheets: any,
   spreadsheetId: string,
   title: string
 ): Promise<void> {
-  // 1) เช็คว่ามีอยู่แล้วไหม
+  // เช็คก่อนว่ามีอยู่แล้วไหม
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: 'sheets.properties.title',
@@ -319,25 +328,21 @@ export async function ensureSheetExistsIdempotent(
   );
   if (exists) return;
 
-  // 2) ยังไม่มี -> addSheet
+  // พยายาม add; ถ้ามีคนอื่นเพิ่งสร้างพอดี ให้กลืน error "already exists"
   try {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: { requests: [{ addSheet: { properties: { title } } }] },
     });
   } catch (err: any) {
-    // กันเคส race: ถ้าเพิ่งมีคนสร้างพร้อมกัน ให้มองข้าม
     const msg =
       err?.response?.data?.error?.message ||
       err?.errors?.[0]?.message ||
       err?.message ||
       '';
-    if (/already exists/i.test(msg)) return;
+    if (/already exists/i.test(msg)) {
+      return; // ถือว่าสร้างสำเร็จไปแล้ว
+    }
     throw err;
   }
-}
-
-  // sort key asc
-  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  return out;
 }

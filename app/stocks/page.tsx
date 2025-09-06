@@ -88,7 +88,7 @@ export default function StocksPage() {
       setLoadingStock(false);
     }
   }
-  useEffect(() => { if (tab === 'STOCKS') loadStocks(); }, [location, tab]);
+  useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab]);
 
   // ---- Products for Add Panel ----
   const [products, setProducts] = useState<Product[]>([]);

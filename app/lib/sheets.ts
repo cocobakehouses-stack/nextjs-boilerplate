@@ -303,6 +303,39 @@ export function aggregateByPeriod(
   for (const [key, rs] of buckets) {
     out.push({ key, totals: summarizeTotals(rs) });
   }
+  // ===== Idempotent sheet ensure (ไม่ add ซ้ำ) =====
+export async function ensureSheetExistsIdempotent(
+  sheets: any,
+  spreadsheetId: string,
+  title: string
+): Promise<void> {
+  // 1) เช็คว่ามีอยู่แล้วไหม
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties.title',
+  });
+  const exists = (meta.data.sheets ?? []).some(
+    (s: any) => s.properties?.title?.trim() === title.trim()
+  );
+  if (exists) return;
+
+  // 2) ยังไม่มี -> addSheet
+  try {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+    });
+  } catch (err: any) {
+    // กันเคส race: ถ้าเพิ่งมีคนสร้างพร้อมกัน ให้มองข้าม
+    const msg =
+      err?.response?.data?.error?.message ||
+      err?.errors?.[0]?.message ||
+      err?.message ||
+      '';
+    if (/already exists/i.test(msg)) return;
+    throw err;
+  }
+}
 
   // sort key asc
   out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));

@@ -1,171 +1,72 @@
 // app/api/stocks/adjust/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getAuth, TZ } from '../../../lib/sheets';
+import {
+  getAuth,
+  ensureSheetExistsIdempotent, // ✅ ใช้แบบ idempotent
+} from '../../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const STOCKS_TAB = 'STOCKS';
-const MOVEMENTS_TAB = 'MOVEMENTS';
 
-function a1Sheet(title: string) {
+function a1(title: string) {
   return `'${String(title).replace(/'/g, "''")}'`;
 }
-function nowDateTimeBangkok() {
-  const now = new Date();
-  const date = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(now);
-  const time = new Intl.DateTimeFormat('th-TH', {
-    timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit',
+function todayTH() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+}
+function timeTH() {
+  return new Intl.DateTimeFormat('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: false,
-  }).format(now).replace(/\./g, ':');
-  return { date, time, iso: now.toISOString() };
+  }).format(new Date()).replace(/\./g, ':');
 }
-
-// --- helper สำหรับเขียน header ---
-function colLetter(n: number) {
-  let s = '';
-  while (n > 0) {
-    const m = (n - 1) % 26;
-    s = String.fromCharCode(65 + m) + s;
-    n = Math.floor((n - 1) / 26);
-  }
-  return s;
-}
-async function ensureSheetWithHeaders(
-  sheets: any,               // ใช้ any เพื่อลด TS friction
-  spreadsheetId: string,
-  title: string,
-  headers: string[]
-) {
-  // เช็คว่ามีชีทนี้หรือยัง
-  const meta = await sheets.spreadsheets.get({ spreadsheetId });
-  const exists = (meta.data.sheets || []).some(
-    (s: any) => s.properties?.title === title
-  );
-  if (!exists) {
-    // สร้างชีทใหม่
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [{ addSheet: { properties: { title } } }],
-      },
-    });
-  }
-  // เขียน header แถวแรกเสมอ (update ทับได้)
-  const endCol = colLetter(headers.length);
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${a1Sheet(title)}!A1:${endCol}1`,
-    valueInputOption: 'RAW',
-    requestBody: { values: [headers] },
-  });
-}
-
-type Movement = {
-  productId: number;
-  delta: number;   // + รับเข้า / - ขายออก
-  reason?: string; // sale, restock, adjust
-  billNo?: string;
-};
-type Body = {
-  location: string;
-  movements: Movement[];
-};
 
 export async function PATCH(req: Request) {
   try {
-    const body = (await req.json()) as Body;
-    if (!body?.location || !body.movements?.length) {
+    const { location, movements } = await req.json();
+    if (!location || !Array.isArray(movements) || movements.length === 0) {
       return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
     }
-
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // ensure tabs exist + headers
-    await ensureSheetWithHeaders(sheets, spreadsheetId, STOCKS_TAB, [
-      'locationId', 'productId', 'qty', 'updatedAt'
-    ]);
-    await ensureSheetWithHeaders(sheets, spreadsheetId, MOVEMENTS_TAB, [
-      'date', 'time', 'locationId', 'productId', 'delta', 'reason', 'billNo'
-    ]);
+    // ✅ ให้แน่ใจว่ามี STOCKS แบบไม่เพิ่มซ้ำ (กัน addSheet ซ้ำ)
+    await ensureSheetExistsIdempotent(sheets, spreadsheetId, STOCKS_TAB);
 
-    // โหลด STOCKS ปัจจุบัน
-    const stockRes = await sheets.spreadsheets.values.get({
+    const date = todayTH();
+    const time = timeTH();
+
+    // เตรียมแถวเพิ่ม (A..H = Date,Time,Location,ProductId,ProductName,Delta,Reason,User)
+    const values = movements.map((m: any) => ([
+      date,
+      time,
+      String(location).toUpperCase(),
+      Number(m.productId) || 0,
+      m.productName || '',
+      Number(m.delta) || 0,
+      m.reason || 'manual adjust',
+      m.user || '',
+    ]));
+
+    // append
+    await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${a1Sheet(STOCKS_TAB)}!A:D`,
-    });
-    const rows = stockRes.data.values || [];
-    const header = rows[0] || [];
-    const dataRows = rows.slice(1);
-
-    const stockMap: Record<string, { rowIndex: number; qty: number }> = {};
-    dataRows.forEach((r, i) => {
-      const [loc, pid, qty] = r;
-      const key = `${loc}_${pid}`;
-      stockMap[key] = { rowIndex: i + 2, qty: Number(qty) || 0 };
+      range: `${a1(STOCKS_TAB)}!A:H`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values },
     });
 
-    // คำนวณปรับ
-    const { date, time, iso } = nowDateTimeBangkok();
-    const updates: { rowIndex: number; values: any[] }[] = [];
-    const appendRows: any[][] = [];
-
-    let nextAppendRowIndex = dataRows.length + 2;
-
-    for (const m of body.movements) {
-      const key = `${body.location}_${m.productId}`;
-      const cur = stockMap[key];
-      let newQty = (cur?.qty || 0) + m.delta;
-      if (newQty < 0) newQty = 0; // ไม่ให้ติดลบ
-
-      if (cur) {
-        updates.push({
-          rowIndex: cur.rowIndex,
-          values: [body.location, m.productId, newQty, iso],
-        });
-        stockMap[key].qty = newQty;
-      } else {
-        // แถวใหม่ใน STOCKS (คำนวณตำแหน่งแถวต่อท้าย)
-        updates.push({
-          rowIndex: nextAppendRowIndex++,
-          values: [body.location, m.productId, newQty, iso],
-        });
-        stockMap[key] = { rowIndex: nextAppendRowIndex - 1, qty: newQty };
-      }
-
-      // append ลง MOVEMENTS
-      appendRows.push([
-        date, time, body.location, m.productId,
-        m.delta, m.reason || '', m.billNo || '',
-      ]);
-    }
-
-    // เขียนกลับ STOCKS (ทีละแถว)
-    for (const u of updates) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${a1Sheet(STOCKS_TAB)}!A${u.rowIndex}:D${u.rowIndex}`,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [u.values] },
-      });
-    }
-
-    // append MOVEMENTS ทั้งก้อน
-    if (appendRows.length) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: `${a1Sheet(MOVEMENTS_TAB)}!A:G`,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: appendRows },
-      });
-    }
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, added: values.length });
   } catch (e: any) {
     console.error('PATCH /api/stocks/adjust error', e?.message || e);
-    return NextResponse.json({ error: 'adjust failed' }, { status: 500 });
+    return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
   }
 }

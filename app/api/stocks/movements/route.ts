@@ -1,14 +1,13 @@
 // app/api/stocks/movements/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getAuth, a1Sheet } from '../../lib/sheets';
+import { getAuth, a1Sheet } from '../../../lib/sheets'; // ← ขึ้นสามชั้นไปถึง app/lib
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MOVES_TAB = 'STOCK_MOVEMENTS';
 
-// สร้างแท็บถ้ายังไม่มี + ตั้งหัวตารางให้ถูกต้อง (idempotent)
 async function ensureMovesSheet(sheets: any, spreadsheetId: string) {
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
@@ -23,20 +22,13 @@ async function ensureMovesSheet(sheets: any, spreadsheetId: string) {
       requestBody: { requests: [{ addSheet: { properties: { title: MOVES_TAB } } }] },
     });
   }
-  // ตั้งหัวคอลัมน์เสมอ (ไม่มีผลซ้ำ เพราะเป็น update)
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${a1Sheet(MOVES_TAB)}!A1:G1`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [[
-        'Date',          // A
-        'Time',          // B
-        'Location',      // C
-        'ProductID',     // D
-        'ProductName',   // E
-        'Delta',         // F (+/-)
-        'Reason',        // G
+        'Date','Time','Location','ProductID','ProductName','Delta','Reason'
       ]],
     },
   });
@@ -52,7 +44,7 @@ type MovementRow = {
   reason?: string;
 };
 
-function parseNum(x: any) {
+function num(x: any) {
   const n = Number(String(x ?? '').trim());
   return Number.isFinite(n) ? n : 0;
 }
@@ -62,7 +54,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const location = (url.searchParams.get('location') || '').trim().toUpperCase();
     const start = (url.searchParams.get('start') || '').trim(); // YYYY-MM-DD
-    const end = (url.searchParams.get('end') || '').trim();     // YYYY-MM-DD
+    const end   = (url.searchParams.get('end')   || '').trim(); // YYYY-MM-DD
 
     if (!location || !start || !end) {
       return NextResponse.json({ error: 'location, start, end are required' }, { status: 400 });
@@ -79,20 +71,18 @@ export async function GET(req: Request) {
       range: `${a1Sheet(MOVES_TAB)}!A:G`,
     });
 
-    const rows = (res.data.values || []).slice(1); // skip header
+    const rows = (res.data.values || []).slice(1);
     const list: MovementRow[] = rows.map((r: any[]) => ({
       date: (r?.[0] ?? '').toString().trim(),
       time: (r?.[1] ?? '').toString().trim(),
       location: (r?.[2] ?? '').toString().trim().toUpperCase(),
-      productId: parseNum(r?.[3]),
+      productId: num(r?.[3]),
       productName: (r?.[4] ?? '').toString().trim(),
-      delta: parseNum(r?.[5]),
+      delta: num(r?.[5]),
       reason: (r?.[6] ?? '').toString().trim(),
     }))
-    .filter(r => r.location === location && r.date >= start && r.date <= end);
-
-    // เรียงใหม่ -> เก่า (เหมือนฝั่ง client)
-    list.sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`));
+    .filter(r => r.location === location && r.date >= start && r.date <= end)
+    .sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`));
 
     return NextResponse.json({ movements: list }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {

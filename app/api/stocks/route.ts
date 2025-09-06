@@ -1,7 +1,7 @@
 // app/api/stock/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getAuth, ensureSheetExists } from '../../lib/sheets';
+import { getAuth, ensureSheetExistsIdempotent } from '../../lib/sheets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
     const sheets = google.sheets({ version:'v4', auth: getAuth() });
 
-    await ensureSheetExists(sheets, spreadsheetId, STOCKS_TAB);
+    await ensureSheetExistsIdempotent(sheets, spreadsheetId, STOCKS_TAB);
     await ensureSheetExists(sheets, spreadsheetId, PRODUCTS_TAB);
 
     // read stocks

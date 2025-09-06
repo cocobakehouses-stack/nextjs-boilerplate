@@ -481,7 +481,7 @@ export default function ProductsPage() {
 
               <div className="ml-auto flex items-center gap-2">
                 <a
-                  href={stockLoc ? `/api/stock/csv?location=${encodeURIComponent(stockLoc)}` : '#'}
+                  href={stockLoc ? `/api/stocks/csv?location=${encodeURIComponent(stockLoc)}` : '#'}
                   onClick={(e) => { if (!stockLoc) e.preventDefault(); }}
                   className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
                   title="Export CSV"

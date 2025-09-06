@@ -2,10 +2,10 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Package, Loader2, Plus, Pencil, Save, X,
-  ArrowUpNarrowWide, ArrowDownWideNarrow,
-  Boxes, UploadCloud
+  ArrowUpNarrowWide, ArrowDownWideNarrow
 } from 'lucide-react';
 import HeaderMenu from '../components/HeaderMenu';
 import Modal from '../components/Modal';
@@ -13,20 +13,14 @@ import { useToast } from '../components/Toast';
 
 type Product = { id: number; name: string; price: number; active?: boolean };
 
-// ---- Stock Types ----
-type LocationRow = { id: string; label: string };
-type StockRow = { productId: number; name: string; price: number; qty: number };
-
 type SortKey = 'id' | 'name' | 'price' | 'active';
 type SortDir = 'asc' | 'desc';
 
 const LS_KEY = 'products_list_state_v1';
 
 export default function ProductsPage() {
+  const router = useRouter();
   const { push } = useToast();
-
-  // ------- tabs -------
-  const [tab, setTab] = useState<'products' | 'stock'>('products');
 
   // ------- products -------
   const [products, setProducts] = useState<Product[]>([]);
@@ -43,15 +37,6 @@ export default function ProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<{ name: string; price: string; active: boolean }>({ name: '', price: '', active: true });
   const modalBusy = pending.has(-1); // ใช้ -1 เป็น flag ตอนบันทึกโมดอล
-
-  // ------- stock panel -------
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [stockLoc, setStockLoc] = useState<string>(''); // ต้องเลือกสาขา
-  const [stockRows, setStockRows] = useState<StockRow[]>([]);
-  const [stockLoading, setStockLoading] = useState(false);
-  const [stockDirty, setStockDirty] = useState(false); // มีการแก้ไขค้างอยู่หรือไม่
-  const [stockQ, setStockQ] = useState('');
-  const [stockPending, setStockPending] = useState(false);
 
   // ---------- utils ----------
   function setPendingOn(id: number, on: boolean) {
@@ -74,23 +59,9 @@ export default function ProductsPage() {
     }
   }
 
-  // ---------- load locations (for stock) ----------
-  async function loadLocations() {
-    try {
-      const res = await fetch('/api/locations', { cache: 'no-store' });
-      const data = await res.json().catch(() => ({}));
-      const list: LocationRow[] = data?.locations || [];
-      setLocations(list);
-      if (!stockLoc && list.length > 0) setStockLoc(list[0].id);
-    } catch {
-      setLocations([]);
-    }
-  }
-
   // init + restore persisted list state
   useEffect(() => {
     loadProducts();
-    loadLocations();
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (raw) {
@@ -238,78 +209,6 @@ export default function ProductsPage() {
     return sortKey === k ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
   }
 
-  // ---------- modal key handlers ----------
-  useEffect(() => {
-    if (!modalOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter') { e.preventDefault(); submitModal(); }
-      if (e.key === 'Escape') { e.preventDefault(); setModalOpen(false); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [modalOpen, form, editing, modalBusy]);
-
-  // =========================
-  //        STOCK PANEL
-  // =========================
-  async function loadStock() {
-    if (!stockLoc) return;
-    setStockLoading(true);
-    setStockDirty(false);
-    try {
-      // สมมติ endpoint: GET /api/stock?location=LOC
-      const res = await fetch(`/api/stocks?location=${encodeURIComponent(stockLoc)}`, { cache: 'no-store' });
-      const data = await res.json().catch(() => ({}));
-      const list: StockRow[] = data?.stock || [];
-      setStockRows(list);
-    } catch {
-      setStockRows([]);
-    } finally {
-      setStockLoading(false);
-    }
-  }
-  useEffect(() => { if (tab === 'stock' && stockLoc) loadStock(); }, [tab, stockLoc]);
-
-  const viewStock = useMemo(() => {
-    const s = stockQ.trim().toLowerCase();
-    if (!s) return stockRows;
-    return stockRows.filter(r => [r.productId, r.name, r.price, r.qty].join(' ').toLowerCase().includes(s));
-  }, [stockRows, stockQ]);
-
-  function updateQtyLocal(productId: number, nextQty: number) {
-    setStockRows(prev => prev.map(r => (r.productId === productId ? { ...r, qty: nextQty } : r)));
-    setStockDirty(true);
-  }
-
-  async function saveStock() {
-    if (!stockLoc) return;
-    setStockPending(true);
-    try {
-      // สมมติ endpoint: PATCH /api/stocks/bulk  { location, updates: [{productId, qty}] }
-      const updates = stockRows.map(r => ({ productId: r.productId, qty: r.qty }));
-      const res = await fetch('/api/stocks/bulk', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ location: stockLoc, updates }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Save stock failed');
-      push({ type: 'success', message: 'บันทึกสต๊อกสำเร็จ' });
-      setStockDirty(false);
-      await loadStock();
-    } catch (e: any) {
-      push({ type: 'error', message: e?.message || 'Save stock failed' });
-    } finally {
-      setStockPending(false);
-    }
-  }
-
-  const stockCsvHref = useMemo(() => {
-    if (!stockLoc) return '#';
-    // สมมติ endpoint: /api/stocks/csv?location=LOC
-    return `/api/stocks/csv?location=${encodeURIComponent(stockLoc)}`;
-  }, [stockLoc]);
-
   // =========================
   //          RENDER
   // =========================
@@ -331,231 +230,124 @@ export default function ProductsPage() {
           </h1>
           <div className="inline-flex rounded-lg border overflow-hidden">
             <button
-              className={`px-3 py-2 text-sm ${tab==='products' ? 'bg-[var(--brand)] text-[var(--brand-contrast)]' : 'bg-white hover:bg-gray-50'}`}
-              onClick={() => setTab('products')}
+              className="px-3 py-2 text-sm bg-[var(--brand)] text-[var(--brand-contrast)]"
+              aria-current="page"
             >
               Products
             </button>
             <button
-              className={`px-3 py-2 text-sm ${tab==='stock' ? 'bg-[var(--brand)] text-[var(--brand-contrast)]' : 'bg-white hover:bg-gray-50'}`}
-              onClick={() => setTab('stock')}
+              className="px-3 py-2 text-sm bg-white hover:bg-gray-50"
+              onClick={() => router.push('/stocks')}
+              title="Go to Stocks page"
             >
               Stock
             </button>
           </div>
         </div>
 
-        {/* ================= PRODUCTS TAB ================= */}
-        {tab === 'products' && (
-          <div className="bg-white rounded-xl shadow p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2">
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search…"
-                  className="px-3 py-2 rounded-lg border bg-white w-56"
-                />
-              </div>
-              <button
-                onClick={openAdd}
-                className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 inline-flex items-center gap-1"
-              >
-                <Plus className="w-4 h-4" /> Add Product
-              </button>
+        {/* PRODUCTS TABLE */}
+        <div className="bg-white rounded-xl shadow p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search…"
+                className="px-3 py-2 rounded-lg border bg-white w-56"
+              />
             </div>
-
-            {loading ? (
-              <div className="grid gap-2">
-                <div className="h-10 bg-gray-100 rounded animate-pulse" />
-                <div className="h-10 bg-gray-100 rounded animate-pulse" />
-                <div className="h-10 bg-gray-100 rounded animate-pulse" />
-              </div>
-            ) : viewProducts.length === 0 ? (
-              <div className="p-10 text-center text-gray-600">ไม่พบสินค้า</div>
-            ) : (
-              <div className="overflow-auto rounded-xl border">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-50 text-gray-700">
-                    <tr>
-                      {(['id','name','price','active'] as SortKey[]).map(k => (
-                        <th
-                          key={k}
-                          scope="col"
-                          role="columnheader"
-                          aria-sort={ariaSortFor(k)}
-                          className={`px-3 py-2 ${k==='price' ? 'text-right' : k==='active' ? 'text-center' : 'text-left'} cursor-pointer select-none`}
-                          onClick={() => toggleSort(k)}
-                          title={`Sort by ${sortLabel[k]}`}
-                        >
-                          <div className={`inline-flex items-center gap-1 ${sortKey===k ? 'font-medium' : ''}`}>
-                            {sortLabel[k]}
-                            {sortKey === k ? (
-                              sortDir === 'asc'
-                                ? <ArrowUpNarrowWide className="w-3.5 h-3.5" />
-                                : <ArrowDownWideNarrow className="w-3.5 h-3.5" />
-                            ) : null}
-                          </div>
-                        </th>
-                      ))}
-                      <th className="px-3 py-2 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {viewProducts.map((p) => {
-                      const isActive = p.active ?? true;
-                      const isPending = pending.has(p.id);
-                      return (
-                        <tr key={p.id} className="border-t hover:bg-gray-50 transition">
-                          <td className="px-3 py-2">{p.id}</td>
-                          <td className="px-3 py-2">{p.name}</td>
-                          <td className="px-3 py-2 text-right">{p.price.toLocaleString('en-US', { minimumFractionDigits: 0 })}</td>
-                          <td className="px-3 py-2 text-center">
-                            <label className={`inline-flex items-center ${isPending ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
-                              <input
-                                type="checkbox"
-                                className="sr-only peer"
-                                checked={!!isActive}
-                                onChange={() => toggleActive(p)}
-                                disabled={isPending}
-                                aria-label={`Toggle ${p.name}`}
-                              />
-                              <div className="
-                                relative w-11 h-6 rounded-full bg-gray-200 transition
-                                peer-focus:ring-2 peer-focus:ring-[var(--brand)]
-                                peer-checked:bg-green-600
-                                after:content-[''] after:absolute after:top-[2px] after:left-[2px]
-                                after:w-5 after:h-5 after:rounded-full after:bg-white after:border after:transition-all
-                                peer-checked:after:translate-x-5
-                              " />
-                              <span className="ml-2 text-xs text-gray-600">
-                                {isActive ? 'Active' : 'Inactive'}{isPending ? '…' : ''}
-                              </span>
-                            </label>
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <button
-                              onClick={() => openEdit(p)}
-                              className="px-2 py-1 rounded border hover:bg-gray-100 inline-flex items-center gap-1"
-                            >
-                              <Pencil className="w-4 h-4" /> Edit
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <button
+              onClick={openAdd}
+              className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 inline-flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4" /> Add Product
+            </button>
           </div>
-        )}
 
-        {/* ================= STOCK TAB ================= */}
-        {tab === 'stock' && (
-          <div className="bg-white rounded-xl shadow p-6 space-y-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">Location</label>
-                <select
-                  className="rounded border px-3 py-2 bg-white"
-                  value={stockLoc}
-                  onChange={(e) => setStockLoc(e.target.value)}
-                >
-                  {locations.length === 0 ? (
-                    <option>— ไม่มีสาขา —</option>
-                  ) : (
-                    locations.map(l => <option key={l.id} value={l.id}>{l.label} ({l.id})</option>)
-                  )}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">Search stock</label>
-                <input
-                  value={stockQ}
-                  onChange={(e) => setStockQ(e.target.value)}
-                  placeholder="ค้นหาด้วยชื่อ/ราคา/รหัส"
-                  className="px-3 py-2 rounded-lg border bg-white w-64"
-                />
-              </div>
-
-              <div className="ml-auto flex items-center gap-2">
-                <a
-                  href={stockLoc ? `/api/stocks/csv?location=${encodeURIComponent(stockLoc)}` : '#'}
-                  onClick={(e) => { if (!stockLoc) e.preventDefault(); }}
-                  className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
-                  title="Export CSV"
-                >
-                  <UploadCloud className="w-4 h-4 inline mr-1" />
-                  Export CSV
-                </a>
-                <button
-                  onClick={saveStock}
-                  disabled={!stockDirty || stockPending || !stockLoc}
-                  className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40 inline-flex items-center gap-1"
-                >
-                  {stockPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Save All
-                </button>
-                <button
-                  onClick={loadStock}
-                  disabled={!stockLoc || stockLoading}
-                  className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40 inline-flex items-center gap-1"
-                >
-                  <Boxes className="w-4 h-4" /> Reload
-                </button>
-              </div>
+          {loading ? (
+            <div className="grid gap-2">
+              <div className="h-10 bg-gray-100 rounded animate-pulse" />
+              <div className="h-10 bg-gray-100 rounded animate-pulse" />
+              <div className="h-10 bg-gray-100 rounded animate-pulse" />
             </div>
-
-            {(!stockLoc) ? (
-              <div className="text-gray-600">กรุณาเลือกสาขาก่อน</div>
-            ) : stockLoading ? (
-              <div className="grid gap-2">
-                <div className="h-10 bg-gray-100 rounded animate-pulse" />
-                <div className="h-10 bg-gray-100 rounded animate-pulse" />
-                <div className="h-10 bg-gray-100 rounded animate-pulse" />
-              </div>
-            ) : viewStock.length === 0 ? (
-              <div className="p-10 text-center text-gray-600">ยังไม่มีข้อมูลสต๊อก</div>
-            ) : (
-              <div className="overflow-auto rounded-xl border">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-50 text-gray-700">
-                    <tr>
-                      <th className="px-3 py-2 text-left">ID</th>
-                      <th className="px-3 py-2 text-left">Product</th>
-                      <th className="px-3 py-2 text-right">Price</th>
-                      <th className="px-3 py-2 text-right">Qty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {viewStock.map(r => (
-                      <tr key={r.productId} className="border-t hover:bg-gray-50 transition">
-                        <td className="px-3 py-2">{r.productId}</td>
-                        <td className="px-3 py-2">{r.name}</td>
-                        <td className="px-3 py-2 text-right">{r.price.toLocaleString('en-US')}</td>
+          ) : viewProducts.length === 0 ? (
+            <div className="p-10 text-center text-gray-600">ไม่พบสินค้า</div>
+          ) : (
+            <div className="overflow-auto rounded-xl border">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50 text-gray-700">
+                  <tr>
+                    {(['id','name','price','active'] as SortKey[]).map(k => (
+                      <th
+                        key={k}
+                        scope="col"
+                        role="columnheader"
+                        aria-sort={ariaSortFor(k)}
+                        className={`px-3 py-2 ${k==='price' ? 'text-right' : k==='active' ? 'text-center' : 'text-left'} cursor-pointer select-none`}
+                        onClick={() => toggleSort(k)}
+                        title={`Sort by ${sortLabel[k]}`}
+                      >
+                        <div className={`inline-flex items-center gap-1 ${sortKey===k ? 'font-medium' : ''}`}>
+                          {sortLabel[k]}
+                          {sortKey === k ? (
+                            sortDir === 'asc'
+                              ? <ArrowUpNarrowWide className="w-3.5 h-3.5" />
+                              : <ArrowDownWideNarrow className="w-3.5 h-3.5" />
+                          ) : null}
+                        </div>
+                      </th>
+                    ))}
+                    <th className="px-3 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewProducts.map((p) => {
+                    const isActive = p.active ?? true;
+                    const isPending = pending.has(p.id);
+                    return (
+                      <tr key={p.id} className="border-t hover:bg-gray-50 transition">
+                        <td className="px-3 py-2">{p.id}</td>
+                        <td className="px-3 py-2">{p.name}</td>
+                        <td className="px-3 py-2 text-right">{p.price.toLocaleString('en-US', { minimumFractionDigits: 0 })}</td>
+                        <td className="px-3 py-2 text-center">
+                          <label className={`inline-flex items-center ${isPending ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                            <input
+                              type="checkbox"
+                              className="sr-only peer"
+                              checked={!!isActive}
+                              onChange={() => toggleActive(p)}
+                              disabled={isPending}
+                              aria-label={`Toggle ${p.name}`}
+                            />
+                            <div className="
+                              relative w-11 h-6 rounded-full bg-gray-200 transition
+                              peer-focus:ring-2 peer-focus:ring-[var(--brand)]
+                              peer-checked:bg-green-600
+                              after:content-[''] after:absolute after:top-[2px] after:left-[2px]
+                              after:w-5 after:h-5 after:rounded-full after:bg-white after:border after:transition-all
+                              peer-checked:after:translate-x-5
+                            " />
+                            <span className="ml-2 text-xs text-gray-600">
+                              {isActive ? 'Active' : 'Inactive'}{isPending ? '…' : ''}
+                            </span>
+                          </label>
+                        </td>
                         <td className="px-3 py-2 text-right">
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            className="w-24 text-right rounded border px-2 py-1"
-                            value={r.qty}
-                            onChange={(e) => updateQtyLocal(r.productId, Math.max(0, Number(e.target.value) || 0))}
-                          />
+                          <button
+                            onClick={() => openEdit(p)}
+                            className="px-2 py-1 rounded border hover:bg-gray-100 inline-flex items-center gap-1"
+                          >
+                            <Pencil className="w-4 h-4" /> Edit
+                          </button>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* Dirty indicator */}
-            {stockDirty && (
-              <div className="text-xs text-amber-600">มีการแก้ไขจำนวนที่ยังไม่บันทึก</div>
-            )}
-          </div>
-        )}
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Modal Add/Edit */}

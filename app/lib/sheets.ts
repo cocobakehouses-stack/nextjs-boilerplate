@@ -313,36 +313,42 @@ export function aggregateByPeriod(
  * สร้างชีตใหม่เฉพาะเมื่อยังไม่มี (และกัน race condition/ซ้ำซ้อน)
  * ใช้แทน ensureSheetExists สำหรับกรณีที่ error: "sheet ... already exists"
  */
+// app/lib/sheets.ts (เพิ่มฟังก์ชันนี้ ถ้ายังไม่มี)
 export async function ensureSheetExistsIdempotent(
   sheets: any,
   spreadsheetId: string,
   title: string
-): Promise<void> {
-  // เช็คก่อนว่ามีอยู่แล้วไหม
+) {
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: 'sheets.properties.title',
   });
   const exists = (meta.data.sheets ?? []).some(
-    (s: any) => s.properties?.title?.trim() === title.trim()
+    (s: any) => s.properties?.title === title
   );
   if (exists) return;
 
-  // พยายาม add; ถ้ามีคนอื่นเพิ่งสร้างพอดี ให้กลืน error "already exists"
-  try {
-    await sheets.spreadsheets.batchUpdate({
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+  });
+
+  // ตั้งหัวคอลัมน์ให้ตรง schema ที่เราใช้
+  // STOCKS: A:Date B:Time C:Location D:ProductId E:ProductName F:Delta G:Reason H:User
+  // PRODUCTS: A:ID B:Name C:Price
+  const headerByTitle: Record<string, string[]> = {
+    STOCKS: ['Date','Time','Location','ProductId','ProductName','Delta','Reason','User'],
+    PRODUCTS: ['ID','Name','Price'],
+    Locations: ['ID','Label'],
+  };
+  const header = headerByTitle[title] || [];
+  if (header.length > 0) {
+    const endCol = String.fromCharCode('A'.charCodeAt(0) + header.length - 1);
+    await sheets.spreadsheets.values.update({
       spreadsheetId,
-      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+      range: `${a1Sheet(title)}!A1:${endCol}1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [header] },
     });
-  } catch (err: any) {
-    const msg =
-      err?.response?.data?.error?.message ||
-      err?.errors?.[0]?.message ||
-      err?.message ||
-      '';
-    if (/already exists/i.test(msg)) {
-      return; // ถือว่าสร้างสำเร็จไปแล้ว
-    }
-    throw err;
   }
 }

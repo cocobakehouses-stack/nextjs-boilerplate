@@ -9,28 +9,43 @@ export const dynamic = 'force-dynamic';
 const PRODUCTS_TAB = 'PRODUCTS';
 const STOCKS_TAB = 'STOCKS';
 
-/** Idempotent: มีอยู่แล้วไม่ add ซ้ำ */
-async function ensureTabExists(
+/** กลืน error: "A sheet with the name ... already exists" */
+function isAlreadyExistsError(e: any) {
+  const msg = (e?.message || '').toString();
+  return /already exists/i.test(msg);
+}
+
+/** พยายาม addSheet แต่ถ้ามีอยู่แล้วให้ผ่าน (idempotent แบบ harden) */
+async function ensureTabExistsResilient(
   sheets: any,
   spreadsheetId: string,
   title: string
 ) {
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets.properties.title',
-  });
-  const exists = (meta.data.sheets ?? []).some(
-    (s: any) => s.properties?.title === title
-  );
-  if (!exists) {
+  try {
+    // ลองอ่าน metadata ก่อน (ถ้าอ่านได้และเจอ ชีตก็ข้าม addSheet ไปเลย)
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId,
+      fields: 'sheets.properties.title',
+    });
+    const exists = (meta.data.sheets ?? []).some(
+      (s: any) => s?.properties?.title === title
+    );
+    if (exists) return;
+  } catch {
+    // ถ้าอ่าน meta ไม่ได้ เราจะ fallthrough ไปลอง addSheet แล้วจับ error ด้านล่าง
+  }
+
+  try {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: { requests: [{ addSheet: { properties: { title } } }] },
     });
+  } catch (e: any) {
+    if (!isAlreadyExistsError(e)) throw e; // ไม่ใช่ซ้ำจริงๆ ค่อยโยนต่อ
   }
 }
 
-/** เซ็ต header ให้ตรงสเปค (เรียกซ้ำได้ ปลอดภัย) */
+/** เซ็ต header (เรียกกี่ครั้งก็ได้ ปลอดภัย) */
 async function ensureHeader(
   sheets: any,
   spreadsheetId: string,
@@ -57,17 +72,15 @@ function toNum(x: any) {
 
 /**
  * GET /api/stocks?location=FLAGSHIP
- * คืน { stocks: [{productId, name, price, qty}] }
+ * -> { stocks: [{productId, name, price, qty}] }
  *
- * สคีมาในชีต:
- * - PRODUCTS: A:ID, B:Name, C:Price
- * - STOCKS  : A:Location, B:ProductID, C:Qty   (หนึ่งแถวต่อสินค้า-สาขา)
+ * PRODUCTS: A:ID, B:Name, C:Price
+ * STOCKS  : A:Location, B:ProductID, C:Qty
  */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const location = (url.searchParams.get('location') || '').trim().toUpperCase();
-
     if (!location) {
       return NextResponse.json({ error: 'location is required' }, { status: 400 });
     }
@@ -76,11 +89,11 @@ export async function GET(req: Request) {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // ✅ ทำให้แน่ใจว่าแท็บมีจริง แต่ไม่ add ซ้ำ
-    await ensureTabExists(sheets, spreadsheetId, PRODUCTS_TAB);
-    await ensureTabExists(sheets, spreadsheetId, STOCKS_TAB);
+    // ✅ ทำให้แท็บมีแน่ (ถ้ามีอยู่แล้ว จะกลืน error)
+    await ensureTabExistsResilient(sheets, spreadsheetId, PRODUCTS_TAB);
+    await ensureTabExistsResilient(sheets, spreadsheetId, STOCKS_TAB);
 
-    // ✅ เขียน header (เรียกซ้ำได้ ไม่พัง)
+    // ✅ header ปลอดภัย เรียกซ้ำได้
     await ensureHeader(
       sheets, spreadsheetId, PRODUCTS_TAB,
       ['ID', 'Name', 'Price'],
@@ -106,7 +119,7 @@ export async function GET(req: Request) {
       }))
       .filter((p) => p.id > 0 && p.name);
 
-    // อ่าน STOCKS ของสาขานี้
+    // อ่าน STOCKS
     const sRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `${a1Sheet(STOCKS_TAB)}!A:C`,
@@ -121,7 +134,7 @@ export async function GET(req: Request) {
       if (pid > 0) qtyByPid.set(pid, qty);
     }
 
-    // join เป็นรูปแบบที่หน้า UI ต้องการ
+    // join
     const stocks = products.map((p) => ({
       productId: p.id,
       name: p.name,
@@ -129,7 +142,10 @@ export async function GET(req: Request) {
       qty: qtyByPid.get(p.id) ?? 0,
     }));
 
-    return NextResponse.json({ stocks }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json(
+      { stocks },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (e: any) {
     console.error('GET /api/stocks error', e?.message || e);
     return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });

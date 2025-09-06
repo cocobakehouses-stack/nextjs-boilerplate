@@ -1,7 +1,7 @@
 // app/api/stocks/movements/csv/route.ts
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getAuth, a1Sheet } from '../../../lib/sheets';
+import { getAuth, a1Sheet } from '../../../../lib/sheets'; // ← ขึ้นสี่ชั้น
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,18 +26,13 @@ async function ensureMovesSheet(sheets: any, spreadsheetId: string) {
     spreadsheetId,
     range: `${a1Sheet(MOVES_TAB)}!A1:G1`,
     valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [[
-        'Date','Time','Location','ProductID','ProductName','Delta','Reason'
-      ]],
-    },
+    requestBody: { values: [['Date','Time','Location','ProductID','ProductName','Delta','Reason']] },
   });
 }
 
-function toCsvCell(s: string | number) {
+function csvCell(s: string | number) {
   const t = String(s ?? '');
-  if (/[",\n]/.test(t)) return `"${t.replace(/"/g, '""')}"`;
-  return t;
+  return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
 }
 
 export async function GET(req: Request) {
@@ -45,7 +40,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const location = (url.searchParams.get('location') || '').trim().toUpperCase();
     const start = (url.searchParams.get('start') || '').trim();
-    const end = (url.searchParams.get('end') || '').trim();
+    const end   = (url.searchParams.get('end')   || '').trim();
 
     if (!location || !start || !end) {
       return NextResponse.json({ error: 'location, start, end are required' }, { status: 400 });
@@ -72,9 +67,7 @@ export async function GET(req: Request) {
     const out = [
       ['Date','Time','Location','ProductID','ProductName','Delta','Reason'],
       ...filtered
-    ]
-      .map(arr => arr.map(toCsvCell).join(','))
-      .join('\n');
+    ].map(arr => arr.map(csvCell).join(',')).join('\n');
 
     const filename = `stock_movements_${location}_${start}_${end}.csv`;
     return new NextResponse(out, {

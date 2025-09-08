@@ -12,7 +12,7 @@ function cx(...xs: Array<string | false | null | undefined>) {
 export default function HeaderMenu() {
   const pathname = usePathname() || '/';
 
-  // brand (คลิก = กลับหน้าแรก)
+  // brand
   const Brand = (
     <Link
       href="/"
@@ -24,7 +24,6 @@ export default function HeaderMenu() {
     </Link>
   );
 
-  // เมนูหลัก (ตัด Home ออก เพราะใช้ Brand เป็น Home แล้ว)
   const links = [
     { href: '/pos', label: 'POS', icon: CreditCard },
     { href: '/products', label: 'Products', icon: Package },
@@ -32,7 +31,6 @@ export default function HeaderMenu() {
     { href: '/history', label: 'History', icon: Clock },
   ] as const;
 
-  // ฟังก์ชันเช็ค active: ตรงเป๊ะ หรือเป็นเส้นทางย่อย
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname === href || pathname.startsWith(`${href}/`);
@@ -40,12 +38,14 @@ export default function HeaderMenu() {
 
   return (
     <header className="mb-4 rounded-xl border bg-white/80 px-4 py-2 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-2">
-        {Brand}
+      <div className="mx-auto max-w-6xl flex flex-col gap-2">
+        {/* แถวแรก: Brand */}
+        <div className="flex items-center">{Brand}</div>
 
+        {/* แถวสอง: Links */}
         <nav
           aria-label="Main"
-          className="ml-auto -mx-1 flex shrink-0 items-center gap-1 overflow-x-auto"
+          className="flex flex-wrap gap-2"
         >
           {links.map(({ href, label, icon: Icon }) => {
             const active = isActive(href);

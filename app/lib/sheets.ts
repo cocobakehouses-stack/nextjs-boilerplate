@@ -314,36 +314,37 @@ export function aggregateByPeriod(
  * ใช้แทน ensureSheetExists สำหรับกรณีที่ error: "sheet ... already exists"
  */
 // app/lib/sheets.ts (เพิ่มฟังก์ชันนี้ ถ้ายังไม่มี)
+// ===== Idempotent sheet ensure (กัน add ซ้ำแบบชัวร์) =====
 export async function ensureSheetExistsIdempotent(
   sheets: any,
   spreadsheetId: string,
-  title: string
+  title: string,
+  header?: string[]
 ) {
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets.properties.title',
-  });
-  const exists = (meta.data.sheets ?? []).some(
-    (s: any) => s.properties?.title === title
-  );
-  if (exists) return;
+  try {
+    // เช็คแบบปกติก่อน
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId,
+      fields: 'sheets.properties.title',
+    });
+    const exists = (meta.data.sheets ?? []).some(
+      (s: any) => s.properties?.title === title
+    );
+    if (!exists) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+      });
+    }
+  } catch (e: any) {
+    const msg = e?.errors?.[0]?.message || e?.message || '';
+    // ถ้าข้อความบอกว่า "already exists" ก็ข้ามไป
+    if (!/already exists/i.test(msg)) throw e;
+  }
 
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: { requests: [{ addSheet: { properties: { title } } }] },
-  });
-
-  // ตั้งหัวคอลัมน์ให้ตรง schema ที่เราใช้
-  // STOCKS: A:Date B:Time C:Location D:ProductId E:ProductName F:Delta G:Reason H:User
-  // PRODUCTS: A:ID B:Name C:Price
-  const headerByTitle: Record<string, string[]> = {
-    STOCKS: ['Date','Time','Location','ProductId','ProductName','Delta','Reason','User'],
-    PRODUCTS: ['ID','Name','Price'],
-    Locations: ['ID','Label'],
-  };
-  const header = headerByTitle[title] || [];
-  if (header.length > 0) {
-    const endCol = String.fromCharCode('A'.charCodeAt(0) + header.length - 1);
+  // ตั้ง header ถ้าระบุมา (จะอัปเดตทับแค่บรรทัดหัว)
+  if (header && header.length > 0) {
+    const endCol = String.fromCharCode(64 + header.length); // A=1 .. Z=26 (พอสำหรับ header ที่เราต้องใช้)
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `${a1Sheet(title)}!A1:${endCol}1`,

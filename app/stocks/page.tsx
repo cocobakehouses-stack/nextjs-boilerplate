@@ -150,37 +150,51 @@ export default function StocksPage() {
     }
   }
 
-  // ---- per-row quick mutate ----
-  async function mutateQty(p: StockItem, kind: 'inc'|'dec'|'set', setTo?: number) {
-    if (!location) return;
-    const delta = kind === 'inc' ? 1 : kind === 'dec' ? -1 : 0;
-    const nextQty = kind === 'set' ? Math.max(0, Number(setTo || 0)) : Math.max(0, p.qty + delta);
+ // ---- per-row quick mutate (แก้ใหม่ให้ใช้ /api/stocks/adjust) ----
+async function mutateQty(p: StockItem, kind: 'inc'|'dec'|'set', setTo?: number) {
+  if (!location) return;
 
-    // optimistic update
-    setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: nextQty } : x));
-    setPendingOn(p.productId, true);
-
-    try {
-      const body: any = kind === 'set'
-        ? { setTo: nextQty, reason: 'manual set' }
-        : { delta, reason: delta > 0 ? 'manual +1' : 'manual -1' };
-
-      const res = await fetch(`/api/stocks/${p.productId}?location=${encodeURIComponent(String(location))}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error('Update stock failed');
-      // หมายเหตุ: ถ้าเลือก as-of ไม่ใช่วันนี้ ตัวเลขหลัง reload จะสะท้อนยอด ณ วันที่เลือก (อาจไม่ใช่ค่าที่เพิ่งแก้)
-      await loadStocks();
-    } catch (e) {
-      // revert
-      setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: p.qty } : x));
-      alert('อัปเดตสต๊อกไม่สำเร็จ');
-    } finally {
-      setPendingOn(p.productId, false);
-    }
+  let delta = 0;
+  let reason = 'manual adjust';
+  if (kind === 'set') {
+    const target = Math.max(0, Number(setTo || 0));
+    delta = target - (p.qty || 0);
+    reason = `manual set to ${target}`;
+    if (delta === 0) return; // ไม่ต้องยิงถ้าเท่าเดิม
+    // ทำ optimistic ตามค่า target
+    setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: target } : x));
+  } else {
+    delta = kind === 'inc' ? 1 : -1;
+    reason = delta > 0 ? 'manual +1' : 'manual -1';
+    // optimistic +/-
+    setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: Math.max(0, x.qty + delta) } : x));
   }
+
+  setPendingOn(p.productId, true);
+
+  try {
+    const payload = {
+      location,
+      movements: [{ productId: p.productId, delta, reason }],
+    };
+    const res = await fetch('/api/stocks/adjust', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Update stock failed');
+
+    // รีโหลดเพื่อให้ sync กับยอดจริง (และสะท้อน as-of date ถ้าเปลี่ยน)
+    await loadStocks();
+  } catch (e) {
+    // revert ถ้าพัง
+    setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: p.qty } : x));
+    alert('อัปเดตสต๊อกไม่สำเร็จ');
+  } finally {
+    setPendingOn(p.productId, false);
+  }
+}
 
   // ====== Current list controls (ใหม่) ======
   const [showOnlyPositive, setShowOnlyPositive] = useState<boolean>(true);

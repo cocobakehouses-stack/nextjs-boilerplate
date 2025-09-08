@@ -48,7 +48,7 @@ function GlobalAnimStyles() {
 
   );
 }
-function AnimatedCheck({ size = 72 }: { size?: number }) {
+function AnimatedCheck({ size = 84 }: { size?: number }) {
   const r = 34;             // รัศมีวง
   const c = 2 * Math.PI * r; // เส้นรอบวง (ไว้ตั้ง dasharray)
   return (
@@ -56,7 +56,7 @@ function AnimatedCheck({ size = 72 }: { size?: number }) {
       width={size} height={size} viewBox="0 0 80 80"
       className="mx-auto"
       aria-hidden
-      style={{ animation: 'scale-pop 600ms ease both' }}
+      style={{ animation: 'scale-pop 400ms ease both' }}
     >
       {/* วงกลม */}
       <circle
@@ -65,7 +65,7 @@ function AnimatedCheck({ size = 72 }: { size?: number }) {
         strokeLinecap="round"
         strokeDasharray={c}
         strokeDashoffset={c}
-        style={{ animation: 'dash 700ms ease forwards' }}
+        style={{ animation: 'dash 300ms ease cubic-bezier' }}
       />
       {/* ขีดถูก */}
       <path
@@ -73,7 +73,7 @@ function AnimatedCheck({ size = 72 }: { size?: number }) {
         fill="none" stroke="#16a34a" strokeWidth="6"
         strokeLinecap="round" strokeLinejoin="round"
         strokeDasharray="60" strokeDashoffset="60"
-        style={{ animation: 'dash 500ms 400ms ease forwards' }}
+        style={{ animation: 'dash 400ms 300ms ease forwards' }}
       />
     </svg>
   );

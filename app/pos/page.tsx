@@ -8,13 +8,14 @@ import type { LocationId } from '../data/locations';
 import { products as FALLBACK_PRODUCTS } from '../data/products';
 import {
   ShoppingCart, Trash2, Plus, Minus, Home as HomeIcon,
-  CreditCard, Smartphone, Truck, CheckCircle, ChevronDown, ChevronUp
+  CreditCard, Smartphone, Truck, CheckCircle, ChevronDown, ChevronUp, Gift
 } from "lucide-react";
 
 export const dynamic = 'force-dynamic';
 
 type Product = { id: number; name: string; price: number; category?: string };
 type CartItem = Product & { quantity: number };
+type FreebieItem = { id: number; name: string; qty: number; price?: number };
 type Step = 'cart' | 'confirm' | 'success';
 
 const TZ = 'Asia/Bangkok';
@@ -31,24 +32,10 @@ function toTimeString(d: Date) {
 function GlobalAnimStyles() {
   return (
     <style jsx global>{`
-      @keyframes cart-bump {
-        0% { transform: scale(1); }
-        20% { transform: scale(1.06); }
-        60% { transform: scale(0.98); }
-        100% { transform: scale(1); }
-      }
-      .animate-bump {
-        animation: cart-bump 320ms ease;
-      }
-
-      @keyframes pop-added {
-        0%   { transform: scale(1); }
-        30%  { transform: scale(1.05); }
-        100% { transform: scale(1); }
-      }
-      .animate-pop {
-        animation: pop-added 300ms ease;
-      }
+      @keyframes cart-bump { 0%{transform:scale(1)} 20%{transform:scale(1.06)} 60%{transform:scale(0.98)} 100%{transform:scale(1)} }
+      .animate-bump { animation: cart-bump 320ms ease; }
+      @keyframes pop-added { 0%{transform:scale(1)} 30%{transform:scale(1.05)} 100%{transform:scale(1)} }
+      .animate-pop { animation: pop-added 300ms ease; }
     `}</style>
   );
 }
@@ -73,6 +60,7 @@ export default function POSPage() {
 
   // Core states
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [freebies, setFreebies] = useState<FreebieItem[]>([]); // ✅ กลับมาแล้ว
   const [payment, setPayment] = useState<'cash' | 'promptpay' | 'lineman' | null>(null);
 
   // Discount
@@ -97,7 +85,7 @@ export default function POSPage() {
   }
   useEffect(() => { reloadProducts(); }, []);
 
-  // ❌ ยกเลิก x1.48 สำหรับ lineman: ใช้ราคาเดิมตรง ๆ
+  // ไม่มี x1.48 แล้ว
   const effectiveUnitPrice = (p: Product) => p.price;
 
   // Categories
@@ -120,7 +108,8 @@ export default function POSPage() {
 
   // ---- micro-feedback states ----
   const [addedMap, setAddedMap] = useState<Record<number, boolean>>({});
-  const [cartBump, setCartBump] = useState<number>(0); // change value to re-trigger bump
+  const [addedFreeMap, setAddedFreeMap] = useState<Record<number, boolean>>({});
+  const [cartBump, setCartBump] = useState<number>(0);
 
   // Cart ops
   const addToCart = useCallback((p: Product) => {
@@ -133,19 +122,25 @@ export default function POSPage() {
       }
       return [...prev, { ...p, quantity: 1 }];
     });
-
-    // feedback: button pop & label "Added ✓" ชั่วคราว
     setAddedMap((m) => ({ ...m, [p.id]: true }));
-    setTimeout(() => {
-      setAddedMap((m) => {
-        const clone = { ...m };
-        delete clone[p.id];
-        return clone;
-      });
-    }, 700);
+    setTimeout(() => setAddedMap(m => { const c = {...m}; delete c[p.id]; return c; }), 700);
+    setCartBump(n => n + 1);
+  }, []);
 
-    // feedback: cart bump
-    setCartBump((n) => n + 1);
+  // Freebies ops
+  const addFreebie = useCallback((p: Product) => {
+    setFreebies(prev => {
+      const idx = prev.findIndex(f => f.id === p.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
+        return next;
+      }
+      return [...prev, { id: p.id, name: p.name, qty: 1, price: p.price }];
+    });
+    setAddedFreeMap((m) => ({ ...m, [p.id]: true }));
+    setTimeout(() => setAddedFreeMap(m => { const c = {...m}; delete c[p.id]; return c; }), 700);
+    setCartBump(n => n + 1);
   }, []);
 
   const changeQty = (id: number, q: number) => {
@@ -154,26 +149,38 @@ export default function POSPage() {
       return prev.map((i) => (i.id === id ? { ...i, quantity: q } : i));
     });
   };
-  const removeFromCart = (id: number) => {
-    setCart((prev) => prev.filter((i) => i.id !== id));
+  const removeFromCart = (id: number) => setCart(prev => prev.filter(i => i.id !== id));
+
+  const changeFreeQty = (id: number, q: number) => {
+    setFreebies(prev => {
+      if (q <= 0) return prev.filter(f => f.id !== id);
+      return prev.map(f => (f.id === id ? { ...f, qty: q } : f));
+    });
   };
+  const removeFree = (id: number) => setFreebies(prev => prev.filter(f => f.id !== id));
 
   // Totals
   const subtotal = useMemo(
     () => cart.reduce((s, i) => s + effectiveUnitPrice(i) * i.quantity, 0),
     [cart, payment]
   );
+  // มูลค่าของฟรี เพื่อส่งไปลงรายงาน (ไม่คิดเงินลูกค้า แต่โชว์ใน History)
+  const freebiesAmount = useMemo(
+    () => freebies.reduce((s, f) => s + (f.price || 0) * f.qty, 0),
+    [freebies]
+  );
   const grandTotal = useMemo(
     () => Number(Math.max(0, subtotal - discount).toFixed(2)),
     [subtotal, discount]
   );
   const totalQty = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
+  const freebiesQty = useMemo(() => freebies.reduce((s, f) => s + f.qty, 0), [freebies]);
 
   // Submit / Success
   const [isSubmitting, setSubmitting] = useState(false);
   const [lastSaved, setLastSaved] = useState<{
     billNo: string; date: string; time: string; payment: string; total: number;
-    subtotal: number; discount: number;
+    subtotal: number; discount: number; freebiesQty: number; freebiesAmount: number;
   } | null>(null);
 
   async function saveBill() {
@@ -181,8 +188,8 @@ export default function POSPage() {
       alert("กรุณาเลือกสถานที่และวิธีชำระเงิน");
       return;
     }
-    if (cart.length === 0) {
-      alert("กรุณาเพิ่มสินค้า");
+    if (cart.length === 0 && freebies.length === 0) {
+      alert("กรุณาเพิ่มสินค้า (หรือของฟรี)");
       return;
     }
 
@@ -197,16 +204,16 @@ export default function POSPage() {
         price: effectiveUnitPrice(i),
       }));
 
+      // ส่ง freebies แยกเป็นรายการ พร้อมมูลค่าต่อชิ้น (price) เพื่อ backend ลง Freebies & FreebiesAmount
       const payload = {
         location,
         date,
         time,
         payment, // 'cash' | 'promptpay' | 'lineman'
         items,
-        freebies: [],
+        freebies: freebies.map(f => ({ name: f.name, qty: f.qty, price: f.price || 0 })),
         subtotal: Number(subtotal.toFixed(2)),
-        freebiesAmount: 0,
-        // fields เดิมที่อาจมีใน backend — ให้เป็นศูนย์ไว้ก่อน
+        freebiesAmount: Number(freebiesAmount.toFixed(2)),
         linemanMarkup: 0,
         linemanDiscount: 0,
         total: Number(grandTotal.toFixed(2)),
@@ -229,10 +236,13 @@ export default function POSPage() {
         total: Number(saved.total ?? payload.total),
         subtotal: Number(saved.subtotal ?? payload.subtotal),
         discount: Number(saved.linemanDiscount ?? 0),
+        freebiesQty,
+        freebiesAmount,
       });
 
       // reset
       setCart([]);
+      setFreebies([]);
       setPayment(null);
       setDiscount(0);
       setStep('success');
@@ -261,6 +271,7 @@ export default function POSPage() {
             <div className="text-sm space-y-1 mt-2">
               <p>Subtotal: {lastSaved.subtotal.toFixed(2)} บาท</p>
               <p>Discount: -{lastSaved.discount.toFixed(2)} บาท</p>
+              <p>Freebies: {lastSaved.freebiesQty} ชิ้น (มูลค่า {lastSaved.freebiesAmount.toFixed(2)} บาท)</p>
             </div>
             <button
               onClick={() => setStep('cart')}
@@ -332,17 +343,29 @@ export default function POSPage() {
                   <div key={c.name} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-2">
                     {c.items.map((p) => {
                       const isAdded = !!addedMap[p.id];
+                      const isFreeAdded = !!addedFreeMap[p.id];
                       return (
-                        <div key={p.id} className="bg-white border rounded-xl p-3 flex flex-col">
+                        <div key={p.id} className="bg-white border rounded-xl p-3 flex flex-col gap-2">
                           <div className="font-medium">{p.name}</div>
                           <div className="text-sm text-gray-500">{p.price} บาท</div>
-                          <button
-                            onClick={() => addToCart(p)}
-                            className={`mt-auto px-3 py-2 rounded-lg text-sm w-full
-                              ${isAdded ? 'bg-green-600 text-white animate-pop' : 'bg-[#ac0000] text-[#fffff0] hover:opacity-90'}`}
-                          >
-                            {isAdded ? 'Added ✓' : 'เพิ่ม'}
-                          </button>
+                          <div className="mt-auto grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => addToCart(p)}
+                              className={`px-3 py-2 rounded-lg text-sm w-full
+                                ${isAdded ? 'bg-green-600 text-white animate-pop' : 'bg-[#ac0000] text-[#fffff0] hover:opacity-90'}`}
+                            >
+                              {isAdded ? 'Added ✓' : 'เพิ่ม'}
+                            </button>
+                            <button
+                              onClick={() => addFreebie(p)}
+                              className={`px-3 py-2 rounded-lg text-sm w-full border
+                                ${isFreeAdded ? 'bg-green-50 text-green-700 animate-pop border-green-600' : 'bg-white hover:bg-gray-50'}`}
+                              title="เพิ่มเป็นของฟรี"
+                            >
+                              <Gift className="inline w-4 h-4 mr-1" />
+                              ฟรี
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -353,7 +376,7 @@ export default function POSPage() {
         </div>
 
         {/* Cart drawer */}
-        {cart.length > 0 && (
+        {(cart.length > 0 || freebies.length > 0) && (
           <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg">
             {/* Bar */}
             <div className={`max-w-6xl mx-auto px-4 py-2 flex items-center gap-3 ${cartBump ? 'animate-bump' : ''}`} key={`bar-${cartBump}`}>
@@ -367,12 +390,13 @@ export default function POSPage() {
               </button>
 
               <div className="ml-auto flex items-center gap-4 text-sm">
-                <div>ชิ้นทั้งหมด: <b className="tabular-nums">{totalQty}</b></div>
+                <div>ขาย: <b className="tabular-nums">{totalQty}</b></div>
+                <div>ฟรี: <b className="tabular-nums">{freebiesQty}</b></div>
                 <div>รวม: <b className="tabular-nums">{subtotal.toFixed(2)}</b> บาท</div>
                 <button
                   onClick={() => setStep('confirm')}
                   className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40"
-                  disabled={!location || cart.length === 0}
+                  disabled={!location || (cart.length === 0 && freebies.length === 0)}
                 >
                   ดำเนินการต่อ
                 </button>
@@ -382,34 +406,66 @@ export default function POSPage() {
             {/* Collapsible content */}
             {cartOpen && (
               <div className="max-w-6xl mx-auto px-4 pb-3">
-                {/* รายการในตะกร้า */}
-                <div className="overflow-auto max-h-44 border rounded-lg">
-                  {cart.map((item) => {
-                    const unit = effectiveUnitPrice(item);
-                    return (
-                      <div key={item.id} className="flex items-center justify-between border-b last:border-b-0 px-3 py-2">
-                        <div>
-                          <div className="font-medium">{item.name}</div>
-                          <div className="text-sm text-gray-500">
-                            {unit.toFixed(2)} บาท/ชิ้น
+                {/* รายการในตะกร้า (ขาย) */}
+                {cart.length > 0 && (
+                  <>
+                    <div className="text-sm font-semibold mt-2 mb-1">ขาย</div>
+                    <div className="overflow-auto max-h-40 border rounded-lg">
+                      {cart.map((item) => {
+                        const unit = effectiveUnitPrice(item);
+                        return (
+                          <div key={item.id} className="flex items-center justify-between border-b last:border-b-0 px-3 py-2">
+                            <div>
+                              <div className="font-medium">{item.name}</div>
+                              <div className="text-sm text-gray-500">{unit.toFixed(2)} บาท/ชิ้น</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => changeQty(item.id, item.quantity - 1)} aria-label="decrease">
+                                <Minus className="w-4 h-4" />
+                              </button>
+                              <span className="tabular-nums">{item.quantity}</span>
+                              <button onClick={() => changeQty(item.id, item.quantity + 1)} aria-label="increase">
+                                <Plus className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => removeFromCart(item.id)} aria-label="remove">
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                {/* รายการของฟรี */}
+                {freebies.length > 0 && (
+                  <>
+                    <div className="text-sm font-semibold mt-4 mb-1">ของฟรี</div>
+                    <div className="overflow-auto max-h-40 border rounded-lg">
+                      {freebies.map((f) => (
+                        <div key={f.id} className="flex items-center justify-between border-b last:border-b-0 px-3 py-2">
+                          <div>
+                            <div className="font-medium">{f.name}</div>
+                            <div className="text-xs text-gray-500">มูลค่า {((f.price||0) * f.qty).toFixed(2)} บาท (ไม่คิดเงิน)</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => changeFreeQty(f.id, f.qty - 1)} aria-label="decrease-free">
+                              <Minus className="w-4 h-4" />
+                            </button>
+                            <span className="tabular-nums">{f.qty}</span>
+                            <button onClick={() => changeFreeQty(f.id, f.qty + 1)} aria-label="increase-free">
+                              <Plus className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => removeFree(f.id)} aria-label="remove-free">
+                              <Trash2 className="w-4 h-4 text-red-500" />
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => changeQty(item.id, item.quantity - 1)} aria-label="decrease">
-                            <Minus className="w-4 h-4" />
-                          </button>
-                          <span className="tabular-nums">{item.quantity}</span>
-                          <button onClick={() => changeQty(item.id, item.quantity + 1)} aria-label="increase">
-                            <Plus className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => removeFromCart(item.id)} aria-label="remove">
-                            <Trash2 className="w-4 h-4 text-red-500" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      ))}
+                    </div>
+                  </>
+                )}
 
                 {/* Discount + Payment + Totals */}
                 <div className="grid sm:grid-cols-3 gap-3 mt-3">
@@ -443,18 +499,10 @@ export default function POSPage() {
                     </button>
                   </div>
                   <div className="text-sm space-y-1">
-                    <div className="flex justify-between">
-                      <span>Subtotal</span>
-                      <span className="tabular-nums">{subtotal.toFixed(2)} บาท</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Discount</span>
-                      <span className="tabular-nums">-{discount.toFixed(2)} บาท</span>
-                    </div>
-                    <div className="flex justify-between font-semibold text-lg">
-                      <span>Grand Total</span>
-                      <span className="tabular-nums">{grandTotal.toFixed(2)} บาท</span>
-                    </div>
+                    <div className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{subtotal.toFixed(2)} บาท</span></div>
+                    <div className="flex justify-between"><span>Discount</span><span className="tabular-nums">-{discount.toFixed(2)} บาท</span></div>
+                    <div className="flex justify-between"><span>Freebies (มูลค่า)</span><span className="tabular-nums">{freebiesAmount.toFixed(2)} บาท</span></div>
+                    <div className="flex justify-between font-semibold text-lg"><span>Grand Total</span><span className="tabular-nums">{grandTotal.toFixed(2)} บาท</span></div>
                   </div>
                 </div>
               </div>
@@ -473,80 +521,79 @@ export default function POSPage() {
         <div className="max-w-6xl mx-auto px-4 py-6">
           <h1 className="text-2xl sm:text-3xl font-extrabold mb-2">รวม {grandTotal.toFixed(2)} บาท</h1>
           <div className="text-sm text-gray-600 mb-6">
-            สาขา: <b>{location ?? '-'}</b> • จำนวนชิ้น: <b className="tabular-nums">{totalQty}</b> • Subtotal: <b className="tabular-nums">{subtotal.toFixed(2)}</b> • Discount: <b className="tabular-nums">-{discount.toFixed(2)}</b>
+            สาขา: <b>{location ?? '-'}</b> • ขาย: <b className="tabular-nums">{totalQty}</b> • ฟรี: <b className="tabular-nums">{freebiesQty}</b> • Subtotal: <b className="tabular-nums">{subtotal.toFixed(2)}</b> • Discount: <b className="tabular-nums">-{discount.toFixed(2)}</b> • Freebies มูลค่า: <b className="tabular-nums">{freebiesAmount.toFixed(2)}</b>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 bg-white rounded-xl border p-4">
               <h2 className="font-semibold mb-3">รายการสินค้า</h2>
-              {cart.length === 0 ? (
+              {(cart.length === 0 && freebies.length === 0) ? (
                 <div className="text-gray-600">ไม่มีสินค้า</div>
               ) : (
-                <div className="divide-y">
-                  {cart.map(i => {
-                    const unit = effectiveUnitPrice(i);
-                    return (
-                      <div key={i.id} className="py-2 flex justify-between text-sm">
-                        <div>{i.name} × <span className="tabular-nums">{i.quantity}</span></div>
-                        <div className="tabular-nums">
-                          {(unit * i.quantity).toFixed(2)} บาท
-                        </div>
+                <>
+                  {/* paid items */}
+                  {cart.length > 0 && (
+                    <>
+                      <div className="text-sm font-semibold mb-1">ขาย</div>
+                      <div className="divide-y">
+                        {cart.map(i => {
+                          const unit = effectiveUnitPrice(i);
+                          return (
+                            <div key={i.id} className="py-2 flex justify-between text-sm">
+                              <div>{i.name} × <span className="tabular-nums">{i.quantity}</span></div>
+                              <div className="tabular-nums">{(unit * i.quantity).toFixed(2)} บาท</div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
-                </div>
+                    </>
+                  )}
+
+                  {/* freebies */}
+                  {freebies.length > 0 && (
+                    <>
+                      <div className="text-sm font-semibold mt-3 mb-1">ของฟรี</div>
+                      <div className="divide-y">
+                        {freebies.map(f => (
+                          <div key={f.id} className="py-2 flex justify-between text-sm">
+                            <div>{f.name} × <span className="tabular-nums">{f.qty}</span></div>
+                            <div className="tabular-nums text-gray-500">มูลค่า {((f.price||0)*f.qty).toFixed(2)} บาท (ไม่คิดเงิน)</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
               )}
             </div>
 
             <div className="bg-white rounded-xl border p-4">
               <h2 className="font-semibold mb-3">วิธีชำระเงิน</h2>
               <div className="flex gap-2 mb-4 sm:flex-row flex-col">
-                <button
-                  className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
-                  onClick={() => setPayment('cash')}
-                >
+                <button className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'cash' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`} onClick={() => setPayment('cash')}>
                   <CreditCard className="inline w-4 h-4 mr-1" /> เงินสด
                 </button>
-                <button
-                  className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'promptpay' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
-                  onClick={() => setPayment('promptpay')}
-                >
+                <button className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'promptpay' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`} onClick={() => setPayment('promptpay')}>
                   <Smartphone className="inline w-4 h-4 mr-1" /> PromptPay
                 </button>
-                <button
-                  className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'lineman' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`}
-                  onClick={() => setPayment('lineman')}
-                >
+                <button className={`sm:flex-1 w-full px-3 py-2 rounded-lg border ${payment === 'lineman' ? 'bg-[#ac0000] text-[#fffff0]' : 'bg-gray-50'}`} onClick={() => setPayment('lineman')}>
                   <Truck className="inline w-4 h-4 mr-1" /> Lineman
                 </button>
               </div>
 
               <div className="text-sm space-y-1 mb-4">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span className="tabular-nums">{subtotal.toFixed(2)} บาท</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Discount</span>
-                  <span className="tabular-nums">-{discount.toFixed(2)} บาท</span>
-                </div>
-                <div className="flex justify-between font-semibold text-lg">
-                  <span>Grand Total</span>
-                  <span className="tabular-nums">{grandTotal.toFixed(2)} บาท</span>
-                </div>
+                <div className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{subtotal.toFixed(2)} บาท</span></div>
+                <div className="flex justify-between"><span>Discount</span><span className="tabular-nums">-{discount.toFixed(2)} บาท</span></div>
+                <div className="flex justify-between"><span>Freebies (มูลค่า)</span><span className="tabular-nums">{freebiesAmount.toFixed(2)} บาท</span></div>
+                <div className="flex justify-between font-semibold text-lg"><span>Grand Total</span><span className="tabular-nums">{grandTotal.toFixed(2)} บาท</span></div>
               </div>
 
               <div className="flex sm:justify-between gap-2 sm:flex-row flex-col">
-                <button
-                  onClick={() => setStep('cart')}
-                  className="px-4 py-2 rounded-lg border hover:bg-gray-50 w-full sm:w-auto"
-                >
-                  กลับไปแก้
-                </button>
+                <button onClick={() => setStep('cart')} className="px-4 py-2 rounded-lg border hover:bg-gray-50 w-full sm:w-auto">กลับไปแก้</button>
                 <button
                   onClick={saveBill}
                   className="px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 disabled:opacity-40 w-full sm:w-auto"
-                  disabled={!payment || cart.length === 0 || isSubmitting}
+                  disabled={!payment || (cart.length === 0 && freebies.length === 0) || isSubmitting}
                 >
                   {isSubmitting ? 'Saving…' : 'ยืนยันการขาย'}
                 </button>

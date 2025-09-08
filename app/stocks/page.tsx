@@ -14,6 +14,7 @@ import {
   Loader2,
   Download,
   Calendar,
+  Filter as FilterIcon,
 } from 'lucide-react';
 
 type StockItem = {
@@ -80,7 +81,9 @@ export default function StocksPage() {
     try {
       const res = await fetch(`/api/stocks?location=${encodeURIComponent(location)}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
-      setStocks(data?.stocks || []);
+      // รองรับทั้งรูปแบบ {stocks:[]} และ {stock:[]}
+      const list = Array.isArray(data?.stocks) ? data.stocks : (data?.stock || []);
+      setStocks(list || []);
     } catch (e) {
       console.error('Load stocks error', e);
       setStocks([]);
@@ -171,6 +174,26 @@ export default function StocksPage() {
     }
   }
 
+  // ====== Current list controls (ใหม่) ======
+  const [showOnlyPositive, setShowOnlyPositive] = useState<boolean>(true);
+  const [search, setSearch] = useState<string>('');
+
+  const currentList = useMemo(() => {
+    let arr = stocks;
+    if (showOnlyPositive) arr = arr.filter(s => (s.qty || 0) > 0);
+    const q = search.trim().toLowerCase();
+    if (q) {
+      arr = arr.filter(s =>
+        [s.productId, s.name, s.qty, s.price]
+          .join(' ')
+          .toLowerCase()
+          .includes(q)
+      );
+    }
+    // เรียงชื่อ A→Z
+    return [...arr].sort((a,b)=>a.name.localeCompare(b.name));
+  }, [stocks, showOnlyPositive, search]);
+
   // =========================================================
   // ==============   TAB 2: MOVEMENT HISTORY   =============
   // =========================================================
@@ -189,6 +212,7 @@ export default function StocksPage() {
     setMvLoading(true);
     try {
       const q = new URLSearchParams({ location, start: mvStart, end: mvEnd }).toString();
+      // NOTE: เส้นทางถูกต้องคือ /api/stocks/movements
       const res = await fetch(`/api/stocks/movements?${q}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const list: MovementRow[] = data?.movements || [];
@@ -226,8 +250,17 @@ export default function StocksPage() {
             <Boxes className="w-6 h-6 text-[var(--brand)]" />
             Products & Stock
           </h1>
-          <div className="min-w-[220px]">
+          {/* Location */}
+          <div className="min-w-[260px] flex items-center gap-2">
             <LocationPicker value={location} onChange={(id) => setLocation(id as LocationId)} />
+            <button
+              onClick={loadStocks}
+              className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
+              disabled={!location || loadingStock}
+              title="Reload"
+            >
+              {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 
@@ -255,7 +288,7 @@ export default function StocksPage() {
 
         {/* ===== TAB: CURRENT STOCK ===== */}
         {tab === 'stock' && (
-          <section className="space-y-4">
+          <section className="space-y-5">
             {/* Add Stock Panel */}
             <div className="rounded-xl border bg-[var(--surface-muted)] p-4">
               <div className="flex flex-wrap items-end gap-3">
@@ -311,22 +344,30 @@ export default function StocksPage() {
               </div>
             </div>
 
-            {/* header tools */}
+            {/* ===== Current Products (มีสต็อกแล้ว) ===== */}
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
+              <h2 className="font-semibold">Current products at {location ?? '-'}</h2>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <input
+                    value={search}
+                    onChange={(e)=>setSearch(e.target.value)}
+                    placeholder="Search current…"
+                    className="px-3 py-2 pl-9 rounded-lg border bg-white w-56"
+                  />
+                  <FilterIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-500" />
+                </div>
+                <label className="text-sm inline-flex items-center gap-2 select-none">
+                  <input
+                    type="checkbox"
+                    checked={showOnlyPositive}
+                    onChange={(e)=>setShowOnlyPositive(e.target.checked)}
+                  />
+                  Show only &gt; 0
+                </label>
               </div>
-              <button
-                onClick={loadStocks}
-                className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"
-                disabled={!location || loadingStock}
-              >
-                {loadingStock ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                Reload
-              </button>
             </div>
 
-            {/* table */}
             <div className="overflow-auto rounded-xl border">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
@@ -337,7 +378,7 @@ export default function StocksPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {stocks.map((p) => {
+                  {currentList.map((p) => {
                     const isPending = pendingIds.has(p.productId);
                     return (
                       <tr key={p.productId} className="border-t hover:bg-gray-50">
@@ -371,10 +412,10 @@ export default function StocksPage() {
                       </tr>
                     );
                   })}
-                  {stocks.length === 0 && (
+                  {currentList.length === 0 && (
                     <tr>
                       <td colSpan={3} className="px-3 py-6 text-center text-gray-600">
-                        {loadingStock ? 'กำลังโหลด…' : 'ยังไม่มีข้อมูลสต๊อก'}
+                        {loadingStock ? 'กำลังโหลด…' : 'ยังไม่มีสินค้าในสาขานี้ (หรือค้นหา/กรองอยู่)'}
                       </td>
                     </tr>
                   )}
@@ -387,6 +428,7 @@ export default function StocksPage() {
         {/* ===== TAB: MOVEMENT HISTORY ===== */}
         {tab === 'movements' && (
           <section className="space-y-4">
+            {/* Filters */}
             <div className="flex flex-wrap items-end gap-3">
               <div className="text-sm text-gray-600">
                 {location ? <>Location: <b>{location}</b></> : 'กรุณาเลือกสถานที่'}
@@ -433,6 +475,7 @@ export default function StocksPage() {
               </div>
             </div>
 
+            {/* Table */}
             <div className="overflow-auto rounded-xl border">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">

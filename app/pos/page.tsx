@@ -37,7 +37,15 @@ function GlobalAnimStyles() {
       .animate-bump { animation: cart-bump 320ms ease; }
       @keyframes pop-added { 0%{transform:scale(1)} 30%{transform:scale(1.05)} 100%{transform:scale(1)} }
       .animate-pop { animation: pop-added 300ms ease; }
+      /* ✅ success: วาดขอบวงกลม + ขีดถูก + เด้ง */
+      @keyframes dash { to { stroke-dashoffset: 0; } }
+      @keyframes scale-pop { 0%{ transform: scale(.8); opacity:0 } 60%{ transform: scale(1.08); opacity:1 } 100%{ transform: scale(1) } }
+
+      /* ✅ success: เฟดทีละบรรทัด (เลื่อนขึ้นนิดหน่อย) */
+      @keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+      .fade-up { animation: fade-up .5s ease forwards; opacity: 0; }
     `}</style>
+
   );
 }
 

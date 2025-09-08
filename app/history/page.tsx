@@ -3,6 +3,116 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
+// ===== 1) เพิ่ม types + state ไว้ใกล้ ๆ บรรทัดบนสุดของ component =====
+type StockItem = { productId: number; name: string; qty: number; price?: number };
+
+const [stockOpen, setStockOpen] = useState<boolean>(false);
+const [stockLoading, setStockLoading] = useState<boolean>(false);
+const [stockRows, setStockRows] = useState<StockItem[]>([]);
+const [stockSearch, setStockSearch] = useState<string>("");
+
+// กรอง + เรียงชื่อ A→Z
+const filteredStock = useMemo(() => {
+  const q = stockSearch.trim().toLowerCase();
+  let arr = stockRows;
+  if (q) {
+    arr = arr.filter(s =>
+      [s.productId, s.name, s.qty, s.price].join(" ").toLowerCase().includes(q)
+    );
+  }
+  return [...arr].sort((a,b)=>a.name.localeCompare(b.name));
+}, [stockRows, stockSearch]);
+
+// ===== 2) ฟังก์ชันโหลด stock ปัจจุบันของ location ที่เลือก =====
+async function loadTodayStock() {
+  if (!location || location === ALL_ID) {
+    setStockRows([]);
+    return;
+  }
+  setStockLoading(true);
+  try {
+    const res = await fetch(`/api/stocks?location=${encodeURIComponent(location)}`, { cache: 'no-store' });
+    const data = await res.json().catch(()=> ({}));
+    const list: StockItem[] = Array.isArray(data?.stocks) ? data.stocks : (data?.stock || []);
+    setStockRows(list || []);
+  } catch (e) {
+    console.error('loadTodayStock error', e);
+    setStockRows([]);
+  } finally {
+    setStockLoading(false);
+  }
+}
+
+// โหลดใหม่เมื่อ location เปลี่ยน และพาเนลถูกเปิด
+useEffect(() => {
+  if (stockOpen) loadTodayStock();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [location, stockOpen]);
+
+// ===== 3) ส่วน UI “Today’s stock” — แทรกไว้ใต้ SUMMARY (ก่อน TABLE) =====
+<div className="rounded-xl border bg-white mb-6">
+  <button
+    onClick={() => setStockOpen(s => !s)}
+    className="w-full flex items-center justify-between px-4 py-3"
+    aria-expanded={stockOpen}
+  >
+    <div className="font-semibold">Today’s stock {location !== ALL_ID ? `(${location})` : ''}</div>
+    <span className="text-sm text-gray-600">
+      {stockOpen ? 'ซ่อน' : 'แสดง'}
+    </span>
+  </button>
+
+  {stockOpen && (
+    <div className="px-4 pb-4 space-y-3">
+      {/* Controls */}
+      <div className="flex items-center gap-2">
+        <input
+          value={stockSearch}
+          onChange={(e)=>setStockSearch(e.target.value)}
+          className="rounded border px-3 py-2 bg-white"
+          placeholder="ค้นหาสินค้า…"
+        />
+        <button
+          onClick={loadTodayStock}
+          className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-50"
+          disabled={stockLoading || !location || location===ALL_ID}
+        >
+          {stockLoading ? 'กำลังโหลด…' : 'Reload'}
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto rounded-xl border">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="text-left p-2">Product</th>
+              <th className="text-right p-2">Qty</th>
+              <th className="text-right p-2">Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredStock.map((s)=>(
+              <tr key={s.productId} className="border-t">
+                <td className="p-2">{s.name}</td>
+                <td className="p-2 text-right tabular-nums">{s.qty}</td>
+                <td className="p-2 text-right tabular-nums">{(s.price ?? 0).toFixed?.(2) ?? s.price ?? '-'}</td>
+              </tr>
+            ))}
+            {!stockLoading && filteredStock.length === 0 && (
+              <tr><td colSpan={3} className="p-3 text-center text-gray-600">
+                {location===ALL_ID ? 'เลือกสาขาก่อนจึงจะแสดงสต๊อก' : 'ไม่พบรายการ'}
+              </td></tr>
+            )}
+            {stockLoading && (
+              <tr><td colSpan={3} className="p-3 text-center text-gray-600">กำลังโหลด…</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )}
+</div>
 
 type LocationRow = { id: string; label: string };
 type HistoryRow = {

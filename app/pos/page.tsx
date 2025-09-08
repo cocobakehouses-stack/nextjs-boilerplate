@@ -39,7 +39,7 @@ function GlobalAnimStyles() {
       .animate-pop { animation: pop-added 300ms ease; }
       /* ✅ success: วาดขอบวงกลม + ขีดถูก + เด้ง */
       @keyframes dash { to { stroke-dashoffset: 0; } }
-      @keyframes scale-pop { 0%{ transform: scale(.8); opacity:0 } 60%{ transform: scale(1.08); opacity:1 } 100%{ transform: scale(1) } }
+      @keyframes scale-pop { 0%{ transform: scale(.8); opacity:0 } 80%{ transform: scale(1.08); opacity:1 } 100%{ transform: scale(1) } }
 
       /* ✅ success: เฟดทีละบรรทัด (เลื่อนขึ้นนิดหน่อย) */
       @keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -306,27 +306,27 @@ export default function POSPage() {
   <AnimatedCheck size={72} />
 
   {/* ✅ เฟดทีละบรรทัด: ใส่ delay ไล่กัน */}
-  <h2 className="text-2xl font-extrabold fade-up" style={{ animationDelay: '120ms' }}>
+  <h2 className="text-2xl font-extrabold fade-up" style={{ animationDelay: '100ms' }}>
     รวม {lastSaved.total.toFixed(2)} บาท
   </h2>
-  <p className="text-sm text-gray-600 fade-up" style={{ animationDelay: '200ms' }}>
+  <p className="text-sm text-gray-600 fade-up" style={{ animationDelay: '150ms' }}>
     เลขที่บิล: {lastSaved.billNo}
   </p>
-  <p className="text-sm text-gray-600 fade-up" style={{ animationDelay: '260ms' }}>
+  <p className="text-sm text-gray-600 fade-up" style={{ animationDelay: '200ms' }}>
     {lastSaved.date} {lastSaved.time}
   </p>
-  <p className="text-sm text-gray-600 fade-up" style={{ animationDelay: '320ms' }}>
+  <p className="text-sm text-gray-600 fade-up" style={{ animationDelay: '250ms' }}>
     วิธีชำระ: {lastSaved.payment}
   </p>
 
   <div className="text-sm space-y-1 mt-2">
-    <p className="fade-up" style={{ animationDelay: '380ms' }}>
+    <p className="fade-up" style={{ animationDelay: '300ms' }}>
       Subtotal: {lastSaved.subtotal.toFixed(2)} บาท
     </p>
-    <p className="fade-up" style={{ animationDelay: '440ms' }}>
+    <p className="fade-up" style={{ animationDelay: '300ms' }}>
       Discount: -{lastSaved.discount.toFixed(2)} บาท
     </p>
-    <p className="fade-up" style={{ animationDelay: '500ms' }}>
+    <p className="fade-up" style={{ animationDelay: '300ms' }}>
       Freebies: {lastSaved.freebiesQty} ชิ้น (มูลค่า {lastSaved.freebiesAmount.toFixed(2)} บาท)
     </p>
   </div>
@@ -334,7 +334,7 @@ export default function POSPage() {
   <button
     onClick={() => setStep('cart')}
     className="mt-4 px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 w-full sm:w-auto fade-up"
-    style={{ animationDelay: '560ms' }}
+    style={{ animationDelay: '460ms' }}
   >
     ทำรายการใหม่
   </button>

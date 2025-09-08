@@ -21,7 +21,8 @@ export type HistoryRow = {
 
 export type Totals = {
   count: number;
-  totalQty: number;
+  totalQty: number;        // จำนวนขายจริง (ไม่รวมของฟรี)
+  freebiesQty: number;     // จำนวนของฟรี (นับจากช่อง Freebies)
   totalAmount: number;
   freebiesAmount: number;
   byPayment: Record<string, number>;
@@ -176,7 +177,22 @@ function parseNumberCell(x: any) {
   const n = Number(String(x ?? '').replace(/,/g, '').trim());
   return Number.isFinite(n) ? n : 0;
 }
+// นับจำนวนชิ้นจากข้อความในคอลัมน์ Freebies เช่น "Cookie x2; Brownie x1"
+// ถ้าไม่เจอรูปแบบ xN จะ fallback เป็นการนับจำนวนชิ้นจากการแยกด้วย , ; | + /
+function countQtyFromFreebiesCell(cell: any): number {
+  const txt = String(cell ?? '').trim();
+  if (!txt) return 0;
 
+  // รูปแบบหลัก: "... x2", "… ×3"
+  let qty = 0;
+  const m = txt.matchAll(/(?:x|×)\s*(\d+)/gi);
+  for (const g of m) qty += Number(g[1] || 0);
+  if (qty > 0) return qty;
+
+  // fallback: แยกเป็นรายการ ๆ แล้วนับ 1 ชิ้นต่อรายการ
+  const parts = txt.split(/[,+;|/]/g).map(s => s.trim()).filter(Boolean);
+  return parts.length > 0 ? parts.length : 0;
+}
 /** ---------- History (single date) ---------- */
 export async function fetchHistory(
   spreadsheetId: string,
@@ -255,15 +271,26 @@ export async function fetchHistoryRange(
 /** ---------- Totals helpers ---------- */
 export function summarizeTotals(rows: HistoryRow[]): Totals {
   const count = rows.length;
-  const totalQty = rows.reduce((s, r) => s + (r.totalQty || 0), 0);
+
+  // รวมของฟรีจากข้อความในคอลัมน์ Freebies
+  const freebiesQty = rows.reduce((s, r) => s + countQtyFromFreebiesCell(r.freebies), 0);
+
+  // totalQty ในชีตมักเป็น "รวมทั้งหมด" (รวมของฟรี)
+  const totalQtyAll = rows.reduce((s, r) => s + (r.totalQty || 0), 0);
+
+  // จำนวนขายจริง = ทั้งหมด - ของฟรี (ไม่ให้ติดลบ)
+  const totalQty = Math.max(0, totalQtyAll - freebiesQty);
+
   const totalAmount = rows.reduce((s, r) => s + (r.total || 0), 0);
   const freebiesAmount = rows.reduce((s, r) => s + (r.freebiesAmount || 0), 0);
+
   const byPayment = rows.reduce<Record<string, number>>((acc, r) => {
     const k = r.payment || '-';
     acc[k] = (acc[k] || 0) + (r.total || 0);
     return acc;
   }, {});
-  return { count, totalQty, totalAmount, freebiesAmount, byPayment };
+
+  return { count, totalQty, freebiesQty, totalAmount, freebiesAmount, byPayment };
 }
 
 /** ---------- Aggregation by period ---------- */

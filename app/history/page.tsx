@@ -12,10 +12,30 @@ type HistoryRow = {
   total: number; freebiesAmount: number; location?: string;
 };
 
+type Product = { id:number; name:string; price:number; active?:boolean };
+
 const TZ = 'Asia/Bangkok';
 const ALL_ID = 'ALL';
 function toBangkokDateString(d = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
+}
+
+// ---- helpers ----
+// parse "Name x2; Another x3" => { "Name":2, "Another":3 } + sum
+function parseNameQtyList(s: string): { map: Record<string, number>, sum: number } {
+  const map: Record<string, number> = {};
+  let sum = 0;
+  (s || '').split(';').forEach(raw => {
+    const it = raw.trim();
+    if (!it) return;
+    const m = it.match(/(.+?)\s*x\s*(\d+)/i);
+    if (!m) return;
+    const name = m[1].trim();
+    const q = Number(m[2]) || 0;
+    map[name] = (map[name] || 0) + q;
+    sum += q;
+  });
+  return { map, sum };
 }
 
 export default function HistoryPage() {
@@ -23,11 +43,30 @@ export default function HistoryPage() {
   const [location, setLocation] = useState<string>(ALL_ID);
   const [date, setDate] = useState<string>(toBangkokDateString());
   const [rows, setRows] = useState<HistoryRow[]>([]);
-  const [totals, setTotals] = useState<{
+  const [totalsFromApi, setTotalsFromApi] = useState<{
     count: number; totalQty: number; totalAmount: number; freebiesAmount: number;
     byPayment: Record<string, number>;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // products (for price lookup)
+  const [products, setProducts] = useState<Product[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        setProducts(Array.isArray(data?.products) ? data.products : []);
+      } catch {
+        setProducts([]);
+      }
+    })();
+  }, []);
+  const priceByName = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const p of products) m[p.name.trim()] = Number(p.price) || 0;
+    return m;
+  }, [products]);
 
   // โหลด locations (+ restore saved)
   useEffect(() => {
@@ -49,18 +88,22 @@ export default function HistoryPage() {
     load();
   }, []);
 
-  // รวมยอด
+  // รวมยอดจากแถว (ไม่ใช้ totalQty ของ API แล้ว เพื่อแยก freebies)
   function reduceTotals(all: HistoryRow[]) {
     const count = all.length;
-    const totalQty = all.reduce((s, r) => s + (Number(r.totalQty) || 0), 0);
+    const freebiesQty = all.reduce((s, r) => s + parseNameQtyList(r.freebies).sum, 0);
+    const totalQtyAll = all.reduce((s, r) => s + (Number(r.totalQty) || 0), 0);
+    const soldQty = Math.max(0, totalQtyAll - freebiesQty);
+
     const totalAmount = all.reduce((s, r) => s + (Number(r.total) || 0), 0);
     const freebiesAmount = all.reduce((s, r) => s + (Number(r.freebiesAmount) || 0), 0);
+
     const byPayment: Record<string, number> = {};
     for (const r of all) {
       const key = (r.payment || '-').toString();
       byPayment[key] = (byPayment[key] || 0) + (Number(r.total) || 0);
     }
-    return { count, totalQty, totalAmount, freebiesAmount, byPayment };
+    return { count, soldQty, freebiesQty, totalAmount, freebiesAmount, byPayment };
   }
 
   // โหลดข้อมูล
@@ -75,7 +118,6 @@ export default function HistoryPage() {
       const data = await res.json().catch(() => ({}));
 
       const list: HistoryRow[] = data?.rows || [];
-      // sort: ถ้า billNo ไม่ใช่เลข ให้เทียบแบบ string
       const sorted = [...list].sort((a, b) => {
         const na = Number(a.billNo); const nb = Number(b.billNo);
         if (Number.isFinite(na) && Number.isFinite(nb)) return nb - na;
@@ -83,39 +125,44 @@ export default function HistoryPage() {
       });
 
       setRows(sorted);
-      setTotals(data?.totals || reduceTotals(sorted));
+      setTotalsFromApi(data?.totals || null);
     } finally {
       setLoading(false);
     }
   }
 
-  // แยก Lineman summary
+  // คำนวณสรุป (ใช้สูตรใหม่ แยก qty)
+  const computedTotals = useMemo(() => reduceTotals(rows), [rows]);
+
+  // สรุป Lineman ตามสูตรใหม่ด้วย
   const linemanSummary = useMemo(() => {
     const rowsLm = rows.filter(r => (r.payment || '').toLowerCase() === 'lineman');
     return rowsLm.length ? reduceTotals(rowsLm) : null;
   }, [rows]);
 
-  // แยกสรุปสินค้าตาม payment (คง amount แบบ approx. ตามของเดิม)
+  // Product Summary — ใช้ราคาจริงจาก /api/products
   const { productSummaryNonLineman, productSummaryLineman } = useMemo(() => {
     const nonL: Record<string, { qty: number; amount: number }> = {};
     const lm: Record<string, { qty: number; amount: number }> = {};
-    const add = (sum: typeof nonL, items: string, total: number) => {
-      (items || '').split(';').forEach(it => {
-        const m = it.trim().match(/(.+?) x(\d+)/);
-        if (m) {
-          const name = m[1].trim(); const qty = Number(m[2]) || 0;
-          if (!sum[name]) sum[name] = { qty: 0, amount: 0 };
-          sum[name].qty += qty;
-          sum[name].amount += Number(total) || 0; // approx.
-        }
-      });
+
+    const addItems = (bucket: typeof nonL, items: string) => {
+      const { map } = parseNameQtyList(items);
+      for (const [name, q] of Object.entries(map)) {
+        const qty = Number(q) || 0;
+        if (!bucket[name]) bucket[name] = { qty: 0, amount: 0 };
+        bucket[name].qty += qty;
+        const unit = priceByName[name] || 0;
+        bucket[name].amount += unit * qty;
+      }
     };
+
     rows.forEach(r => {
-      if ((r.payment || '').toLowerCase() === 'lineman') add(lm, r.items, r.total);
-      else add(nonL, r.items, r.total);
+      if ((r.payment || '').toLowerCase() === 'lineman') addItems(lm, r.items);
+      else addItems(nonL, r.items);
     });
+
     return { productSummaryNonLineman: nonL, productSummaryLineman: lm };
-  }, [rows]);
+  }, [rows, priceByName]);
 
   // CSV href + filename
   const { csvHref, csvFilename } = useMemo(() => {
@@ -146,7 +193,6 @@ export default function HistoryPage() {
               onChange={e => {
                 const v = e.target.value;
                 setLocation(v);
-                // เซฟเฉพาะสาขาจริง (ไม่ใช่ ALL)
                 if (v && v !== ALL_ID) {
                   try { localStorage.setItem('pos_location', v); } catch {}
                 }
@@ -194,16 +240,20 @@ export default function HistoryPage() {
         </div>
 
         {/* SUMMARY */}
-        {totals && (
+        {(totalsFromApi || rows.length > 0) && (
           <div className="rounded-xl border bg-white p-4 mb-6 space-y-4">
             <div>
               <div className="font-semibold mb-2">Summary</div>
-              <div>Bills: {totals.count} | Qty: {totals.totalQty}</div>
-              <div>Total: {totals.totalAmount.toFixed(2)} THB</div>
-              <div>Freebies: {totals.freebiesAmount.toFixed(2)} THB</div>
+              <div>
+                Bills: {computedTotals.count}
+                {' '}| Qty: {computedTotals.soldQty}
+                {' '}| Freebies Qty: {computedTotals.freebiesQty}
+              </div>
+              <div>Total: {computedTotals.totalAmount.toFixed(2)} THB</div>
+              <div>Freebies: {computedTotals.freebiesAmount.toFixed(2)} THB</div>
               <div className="text-gray-700">
                 By Payment:{' '}
-                {Object.entries(totals.byPayment)
+                {Object.entries(computedTotals.byPayment)
                   .map(([k, v]) => `${k}: ${v.toFixed(2)} THB`)
                   .join(' | ')}
               </div>
@@ -212,7 +262,11 @@ export default function HistoryPage() {
             {linemanSummary && (
               <div className="p-3 border rounded bg-gray-50">
                 <div className="font-semibold">🚚 Lineman Summary</div>
-                <div>Bills: {linemanSummary.count} | Qty: {linemanSummary.totalQty}</div>
+                <div>
+                  Bills: {linemanSummary.count}
+                  {' '}| Qty: {linemanSummary.soldQty}
+                  {' '}| Freebies Qty: {linemanSummary.freebiesQty}
+                </div>
                 <div>Total: {linemanSummary.totalAmount.toFixed(2)} THB</div>
               </div>
             )}
@@ -266,6 +320,9 @@ export default function HistoryPage() {
                           <td className="p-2 text-right">{v.amount.toFixed(2)}</td>
                         </tr>
                       ))}
+                      {Object.keys(productSummaryLineman).length === 0 && (
+                        <tr><td colSpan={3} className="p-2 text-gray-500">No data</td></tr>
+                      )}
                     </tbody>
                   </table>
                 </div>

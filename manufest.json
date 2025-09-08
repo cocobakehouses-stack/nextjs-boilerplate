@@ -1,0 +1,20 @@
+{
+  "name": "Coco Bakehouse POS",
+  "short_name": "CocoPOS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffff0",
+  "theme_color": "#ac0000",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

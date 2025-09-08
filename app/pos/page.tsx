@@ -1,7 +1,7 @@
 // app/pos/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';
@@ -25,6 +25,32 @@ function toTimeString(d: Date) {
   return new Intl.DateTimeFormat('th-TH', {
     timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).format(d).replace(/\./g, ':');
+}
+
+// ---- global styles for animations ----
+function GlobalAnimStyles() {
+  return (
+    <style jsx global>{`
+      @keyframes cart-bump {
+        0% { transform: scale(1); }
+        20% { transform: scale(1.06); }
+        60% { transform: scale(0.98); }
+        100% { transform: scale(1); }
+      }
+      .animate-bump {
+        animation: cart-bump 320ms ease;
+      }
+
+      @keyframes pop-added {
+        0%   { transform: scale(1); }
+        30%  { transform: scale(1.05); }
+        100% { transform: scale(1); }
+      }
+      .animate-pop {
+        animation: pop-added 300ms ease;
+      }
+    `}</style>
+  );
 }
 
 export default function POSPage() {
@@ -71,11 +97,10 @@ export default function POSPage() {
   }
   useEffect(() => { reloadProducts(); }, []);
 
-  // Helper: effective unit price (apply x1.48 for lineman)
-  const effectiveUnitPrice = (p: Product) =>
-    payment === 'lineman' ? Number((p.price * 1.48).toFixed(2)) : p.price;
+  // ❌ ยกเลิก x1.48 สำหรับ lineman: ใช้ราคาเดิมตรง ๆ
+  const effectiveUnitPrice = (p: Product) => p.price;
 
-  // Categories (optional, เหมือนเดิม)
+  // Categories
   const categories = useMemo(() => {
     const map = new Map<string, Product[]>();
     for (const p of products) {
@@ -93,8 +118,12 @@ export default function POSPage() {
   }, [products]);
   const [activeCat, setActiveCat] = useState<string>('All');
 
+  // ---- micro-feedback states ----
+  const [addedMap, setAddedMap] = useState<Record<number, boolean>>({});
+  const [cartBump, setCartBump] = useState<number>(0); // change value to re-trigger bump
+
   // Cart ops
-  const addToCart = (p: Product) => {
+  const addToCart = useCallback((p: Product) => {
     setCart((prev) => {
       const idx = prev.findIndex((i) => i.id === p.id);
       if (idx >= 0) {
@@ -104,7 +133,21 @@ export default function POSPage() {
       }
       return [...prev, { ...p, quantity: 1 }];
     });
-  };
+
+    // feedback: button pop & label "Added ✓" ชั่วคราว
+    setAddedMap((m) => ({ ...m, [p.id]: true }));
+    setTimeout(() => {
+      setAddedMap((m) => {
+        const clone = { ...m };
+        delete clone[p.id];
+        return clone;
+      });
+    }, 700);
+
+    // feedback: cart bump
+    setCartBump((n) => n + 1);
+  }, []);
+
   const changeQty = (id: number, q: number) => {
     setCart((prev) => {
       if (q <= 0) return prev.filter((i) => i.id !== id);
@@ -115,10 +158,10 @@ export default function POSPage() {
     setCart((prev) => prev.filter((i) => i.id !== id));
   };
 
-  // Totals (ใช้ effectiveUnitPrice เสมอ)
+  // Totals
   const subtotal = useMemo(
     () => cart.reduce((s, i) => s + effectiveUnitPrice(i) * i.quantity, 0),
-    [cart, payment] // payment เปลี่ยน -> ราคาเปลี่ยน
+    [cart, payment]
   );
   const grandTotal = useMemo(
     () => Number(Math.max(0, subtotal - discount).toFixed(2)),
@@ -148,11 +191,10 @@ export default function POSPage() {
       const date = toDateString(new Date());
       const time = toTimeString(new Date());
 
-      // ใช้ราคา effective ที่ถูกคูณแล้วตอนบันทึก
       const items = cart.map(i => ({
         name: i.name,
         qty: i.quantity,
-        price: effectiveUnitPrice(i), // <= สำคัญ
+        price: effectiveUnitPrice(i),
       }));
 
       const payload = {
@@ -164,8 +206,9 @@ export default function POSPage() {
         freebies: [],
         subtotal: Number(subtotal.toFixed(2)),
         freebiesAmount: 0,
-        linemanMarkup: 0,          // ไม่ใช้แล้ว แต่เว้น field เผื่อ backend ยังอ่านอยู่
-        linemanDiscount: Number(discount.toFixed(2)), // ใช้เป็นส่วนลดรวม
+        // fields เดิมที่อาจมีใน backend — ให้เป็นศูนย์ไว้ก่อน
+        linemanMarkup: 0,
+        linemanDiscount: 0,
         total: Number(grandTotal.toFixed(2)),
       };
 
@@ -185,7 +228,7 @@ export default function POSPage() {
         payment,
         total: Number(saved.total ?? payload.total),
         subtotal: Number(saved.subtotal ?? payload.subtotal),
-        discount: Number(saved.linemanDiscount ?? payload.linemanDiscount),
+        discount: Number(saved.linemanDiscount ?? 0),
       });
 
       // reset
@@ -200,13 +243,14 @@ export default function POSPage() {
     }
   }
 
-  // ซ่อน/แสดงตะกร้า
-  const [cartOpen, setCartOpen] = useState<boolean>(true);
+  // ซ่อน/แสดงตะกร้า — default เป็น "ย่อ"
+  const [cartOpen, setCartOpen] = useState<boolean>(false);
 
   // ---------- SUCCESS ----------
   if (step === 'success' && lastSaved) {
     return (
       <main className="min-h-screen bg-[#fffff0]">
+        <GlobalAnimStyles />
         <div className="max-w-6xl mx-auto px-4 py-10 flex items-center justify-center">
           <div className="bg-white p-6 rounded-xl shadow-md text-center space-y-3 w-full max-w-md">
             <CheckCircle className="w-12 h-12 text-green-600 mx-auto" />
@@ -234,6 +278,7 @@ export default function POSPage() {
   if (step === 'cart') {
     return (
       <main className="min-h-screen bg-[#fffff0]">
+        <GlobalAnimStyles />
         <div className="max-w-6xl mx-auto px-4 pt-4 pb-40">
           {/* Page header */}
           <div className="mb-4 flex flex-col sm:flex-row sm:items-center items-start justify-between gap-3">
@@ -241,7 +286,7 @@ export default function POSPage() {
               <HomeIcon className="w-5 h-5 text-gray-600 group-hover:text-black" />
               <span className="text-2xl sm:text-3xl font-bold hover:underline">Coco Bakehouse POS</span>
             </Link>
-            <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 ${cartBump ? 'animate-bump' : ''}`} key={cartBump}>
               <ShoppingCart className="w-5 h-5 text-gray-600" />
               <span className="text-sm text-gray-700">
                 Location: <b>{location ?? '— เลือกก่อนใช้งาน —'}</b>
@@ -285,25 +330,22 @@ export default function POSPage() {
                 .filter(c => c.name === activeCat)
                 .map(c => (
                   <div key={c.name} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-2">
-                    {c.items.map((p) => (
-                      <div key={p.id} className="bg-white border rounded-xl p-3 flex flex-col">
-                        <div className="font-medium">{p.name}</div>
-                        <div className="text-sm text-gray-500">
-                          {p.price} บาท
-                          {payment === 'lineman' && (
-                            <span className="ml-1 text-xs text-gray-600">
-                              (LM {effectiveUnitPrice(p).toFixed(2)})
-                            </span>
-                          )}
+                    {c.items.map((p) => {
+                      const isAdded = !!addedMap[p.id];
+                      return (
+                        <div key={p.id} className="bg-white border rounded-xl p-3 flex flex-col">
+                          <div className="font-medium">{p.name}</div>
+                          <div className="text-sm text-gray-500">{p.price} บาท</div>
+                          <button
+                            onClick={() => addToCart(p)}
+                            className={`mt-auto px-3 py-2 rounded-lg text-sm w-full
+                              ${isAdded ? 'bg-green-600 text-white animate-pop' : 'bg-[#ac0000] text-[#fffff0] hover:opacity-90'}`}
+                          >
+                            {isAdded ? 'Added ✓' : 'เพิ่ม'}
+                          </button>
                         </div>
-                        <button
-                          onClick={() => addToCart(p)}
-                          className="mt-auto px-3 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 text-sm w-full"
-                        >
-                          เพิ่ม
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ))
             )}
@@ -314,7 +356,7 @@ export default function POSPage() {
         {cart.length > 0 && (
           <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg">
             {/* Bar */}
-            <div className="max-w-6xl mx-auto px-4 py-2 flex items-center gap-3">
+            <div className={`max-w-6xl mx-auto px-4 py-2 flex items-center gap-3 ${cartBump ? 'animate-bump' : ''}`} key={`bar-${cartBump}`}>
               <button
                 onClick={() => setCartOpen((s) => !s)}
                 className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm flex items-center gap-1"
@@ -349,7 +391,7 @@ export default function POSPage() {
                         <div>
                           <div className="font-medium">{item.name}</div>
                           <div className="text-sm text-gray-500">
-                            {unit.toFixed(2)} บาท/ชิ้น{payment === 'lineman' ? ' (LM x1.48)' : ''}
+                            {unit.toFixed(2)} บาท/ชิ้น
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -402,7 +444,7 @@ export default function POSPage() {
                   </div>
                   <div className="text-sm space-y-1">
                     <div className="flex justify-between">
-                      <span>Subtotal{payment === 'lineman' ? ' (incl. LM x1.48)' : ''}</span>
+                      <span>Subtotal</span>
                       <span className="tabular-nums">{subtotal.toFixed(2)} บาท</span>
                     </div>
                     <div className="flex justify-between">
@@ -427,10 +469,11 @@ export default function POSPage() {
   if (step === 'confirm') {
     return (
       <main className="min-h-screen bg-[#fffff0]">
+        <GlobalAnimStyles />
         <div className="max-w-6xl mx-auto px-4 py-6">
           <h1 className="text-2xl sm:text-3xl font-extrabold mb-2">รวม {grandTotal.toFixed(2)} บาท</h1>
           <div className="text-sm text-gray-600 mb-6">
-            สาขา: <b>{location ?? '-'}</b> • จำนวนชิ้น: <b className="tabular-nums">{totalQty}</b> • Subtotal{payment==='lineman' ? ' (incl. LM x1.48)' : ''}: <b className="tabular-nums">{subtotal.toFixed(2)}</b> • Discount: <b className="tabular-nums">-{discount.toFixed(2)}</b>
+            สาขา: <b>{location ?? '-'}</b> • จำนวนชิ้น: <b className="tabular-nums">{totalQty}</b> • Subtotal: <b className="tabular-nums">{subtotal.toFixed(2)}</b> • Discount: <b className="tabular-nums">-{discount.toFixed(2)}</b>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
@@ -447,7 +490,6 @@ export default function POSPage() {
                         <div>{i.name} × <span className="tabular-nums">{i.quantity}</span></div>
                         <div className="tabular-nums">
                           {(unit * i.quantity).toFixed(2)} บาท
-                          {payment === 'lineman' ? <span className="ml-1 text-xs text-gray-600">(unit {unit.toFixed(2)})</span> : null}
                         </div>
                       </div>
                     );
@@ -481,7 +523,7 @@ export default function POSPage() {
 
               <div className="text-sm space-y-1 mb-4">
                 <div className="flex justify-between">
-                  <span>Subtotal{payment === 'lineman' ? ' (incl. LM x1.48)' : ''}</span>
+                  <span>Subtotal</span>
                   <span className="tabular-nums">{subtotal.toFixed(2)} บาท</span>
                 </div>
                 <div className="flex justify-between">

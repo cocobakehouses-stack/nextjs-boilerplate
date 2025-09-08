@@ -3,8 +3,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
-
-// ✅ วางนอก component ได้
 type StockItem = { productId: number; name: string; qty: number; price?: number };
 const [stockOpen, setStockOpen] = useState<boolean>(false);
 const [stockLoading, setStockLoading] = useState<boolean>(false);
@@ -158,11 +156,47 @@ export default function HistoryPage() {
     byPayment: Record<string, number>;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+  
   // === Today’s stock states ===
   const [stockOpen, setStockOpen] = useState<boolean>(false);
   const [stockLoading, setStockLoading] = useState<boolean>(false);
   const [stockRows, setStockRows] = useState<StockItem[]>([]);
   const [stockSearch, setStockSearch] = useState<string>("");
+
+  const filteredStock = useMemo(() => {
+    const q = stockSearch.trim().toLowerCase();
+    let arr = stockRows;
+    if (q) {
+      arr = arr.filter(s =>
+        [s.productId, s.name, s.qty, s.price].join(" ").toLowerCase().includes(q)
+      );
+    }
+    return [...arr].sort((a,b)=>a.name.localeCompare(b.name));
+  }, [stockRows, stockSearch]);
+
+  async function loadTodayStock() {
+    if (!location || location === ALL_ID) {
+      setStockRows([]);
+      return;
+    }
+    setStockLoading(true);
+    try {
+      const res = await fetch(`/api/stocks?location=${encodeURIComponent(location)}`, { cache: 'no-store' });
+      const data = await res.json().catch(()=> ({}));
+      const list: StockItem[] = Array.isArray(data?.stocks) ? data.stocks : (data?.stock || []);
+      setStockRows(list || []);
+    } catch (e) {
+      console.error('loadTodayStock error', e);
+      setStockRows([]);
+    } finally {
+      setStockLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (stockOpen) loadTodayStock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location, stockOpen]);
 
   // กรอง + เรียงชื่อ A→Z
   const filteredStock = useMemo(() => {

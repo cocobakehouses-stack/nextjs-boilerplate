@@ -60,6 +60,11 @@ export default function StocksPage() {
     }
   }, [location]);
 
+  // -------- As-of date (ใหม่) --------
+  const [stockAsOf, setStockAsOf] = useState<string>(() =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date())
+  );
+
   // =========================================================
   // ================   TAB 1: CURRENT STOCK   ===============
   // =========================================================
@@ -79,7 +84,8 @@ export default function StocksPage() {
     if (!location) return;
     setLoadingStock(true);
     try {
-      const res = await fetch(`/api/stocks?location=${encodeURIComponent(location)}`, { cache: 'no-store' });
+      const qs = new URLSearchParams({ location: String(location), asOf: stockAsOf }).toString();
+      const res = await fetch(`/api/stocks?${qs}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       // รองรับทั้งรูปแบบ {stocks:[]} และ {stock:[]}
       const list = Array.isArray(data?.stocks) ? data.stocks : (data?.stock || []);
@@ -91,7 +97,7 @@ export default function StocksPage() {
       setLoadingStock(false);
     }
   }
-  useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab]);
+  useEffect(() => { if (tab === 'stock') loadStocks(); }, [location, tab, stockAsOf]);
 
   // ---- Products for Add Panel ----
   const [products, setProducts] = useState<Product[]>([]);
@@ -159,12 +165,14 @@ export default function StocksPage() {
         ? { setTo: nextQty, reason: 'manual set' }
         : { delta, reason: delta > 0 ? 'manual +1' : 'manual -1' };
 
-      const res = await fetch(`/api/stocks/${p.productId}?location=${encodeURIComponent(location)}`, {
+      const res = await fetch(`/api/stocks/${p.productId}?location=${encodeURIComponent(String(location))}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error('Update stock failed');
+      // หมายเหตุ: ถ้าเลือก as-of ไม่ใช่วันนี้ ตัวเลขหลัง reload จะสะท้อนยอด ณ วันที่เลือก (อาจไม่ใช่ค่าที่เพิ่งแก้)
+      await loadStocks();
     } catch (e) {
       // revert
       setStocks(prev => prev.map(x => x.productId === p.productId ? { ...x, qty: p.qty } : x));
@@ -211,8 +219,7 @@ export default function StocksPage() {
     if (!location || !mvStart || !mvEnd) return;
     setMvLoading(true);
     try {
-      const q = new URLSearchParams({ location, start: mvStart, end: mvEnd }).toString();
-      // NOTE: เส้นทางถูกต้องคือ /api/stocks/movements
+      const q = new URLSearchParams({ location: String(location), start: mvStart, end: mvEnd }).toString();
       const res = await fetch(`/api/stocks/movements?${q}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       const list: MovementRow[] = data?.movements || [];
@@ -230,7 +237,7 @@ export default function StocksPage() {
   const csvHref = useMemo(() => {
     if (!location || !mvStart || !mvEnd) return '#';
     const u = new URL('/api/stocks/movements/csv', window.location.origin);
-    u.searchParams.set('location', location);
+    u.searchParams.set('location', String(location));
     u.searchParams.set('start', mvStart);
     u.searchParams.set('end', mvEnd);
     return u.toString();
@@ -250,9 +257,16 @@ export default function StocksPage() {
             <Boxes className="w-6 h-6 text-[var(--brand)]" />
             Products & Stock
           </h1>
-          {/* Location */}
+          {/* Location + As-of + Reload */}
           <div className="min-w-[260px] flex items-center gap-2">
             <LocationPicker value={location} onChange={(id) => setLocation(id as LocationId)} />
+            <input
+              type="date"
+              className="rounded border px-3 py-2 bg-white"
+              value={stockAsOf}
+              onChange={(e)=> setStockAsOf(e.target.value)}
+              title="As of date"
+            />
             <button
               onClick={loadStocks}
               className="px-3 py-2 rounded-lg border flex items-center gap-2 hover:bg-gray-50"

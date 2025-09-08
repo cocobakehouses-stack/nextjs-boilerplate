@@ -520,7 +520,7 @@ export default function POSPage() {
       <main className="min-h-screen bg-[#fffff0]">
         <GlobalAnimStyles />
         <div className="max-w-6xl mx-auto px-4 py-6">
-          <h1 className="text-2xl sm:text-3xl font-extrabold mb-2">รวม {grandTotal.toFixed(2)} บาท</h1>
+          <h1 className="text-4xl sm:text-6xl font-extrabold mb-2">รวม {grandTotal.toFixed(2)} บาท</h1>
           <div className="text-sm text-gray-600 mb-6">
             สาขา: <b>{location ?? '-'}</b> • ขาย: <b className="tabular-nums">{totalQty}</b> • ฟรี: <b className="tabular-nums">{freebiesQty}</b> • Subtotal: <b className="tabular-nums">{subtotal.toFixed(2)}</b> • Discount: <b className="tabular-nums">-{discount.toFixed(2)}</b> • Freebies มูลค่า: <b className="tabular-nums">{freebiesAmount.toFixed(2)}</b>
           </div>
@@ -582,7 +582,7 @@ export default function POSPage() {
                 </button>
               </div>
 
-              <div className="text-sm space-y-1 mb-4">
+              <div className="text-sm space-y-4 mb-8">
                 <div className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{subtotal.toFixed(2)} บาท</span></div>
                 <div className="flex justify-between"><span>Discount</span><span className="tabular-nums">-{discount.toFixed(2)} บาท</span></div>
                 <div className="flex justify-between"><span>Freebies (มูลค่า)</span><span className="tabular-nums">{freebiesAmount.toFixed(2)} บาท</span></div>

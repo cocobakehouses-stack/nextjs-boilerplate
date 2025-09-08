@@ -2,7 +2,8 @@
 'use client';
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import HeaderMenu from '../components/HeaderMenu';
+import { useRouter } from 'next/navigation';
+import HeaderMenu from './components/HeaderMenu';
 import Link from 'next/link';
 import LocationPicker from '../components/LocationPicker';
 import type { LocationId } from '../data/locations';

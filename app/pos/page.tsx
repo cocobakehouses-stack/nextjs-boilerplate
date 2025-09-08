@@ -48,6 +48,36 @@ function GlobalAnimStyles() {
 
   );
 }
+function AnimatedCheck({ size = 72 }: { size?: number }) {
+  const r = 34;             // รัศมีวง
+  const c = 2 * Math.PI * r; // เส้นรอบวง (ไว้ตั้ง dasharray)
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 80 80"
+      className="mx-auto"
+      aria-hidden
+      style={{ animation: 'scale-pop 600ms ease both' }}
+    >
+      {/* วงกลม */}
+      <circle
+        cx="40" cy="40" r={r}
+        fill="none" stroke="#16a34a" strokeWidth="6"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c}
+        style={{ animation: 'dash 700ms ease forwards' }}
+      />
+      {/* ขีดถูก */}
+      <path
+        d="M26 41 L36 50 L54 30"
+        fill="none" stroke="#16a34a" strokeWidth="6"
+        strokeLinecap="round" strokeLinejoin="round"
+        strokeDasharray="60" strokeDashoffset="60"
+        style={{ animation: 'dash 500ms 400ms ease forwards' }}
+      />
+    </svg>
+  );
+}
 
 export default function POSPage() {
   // Location

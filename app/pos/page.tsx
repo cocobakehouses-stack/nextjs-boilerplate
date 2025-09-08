@@ -301,24 +301,44 @@ export default function POSPage() {
       <main className="min-h-screen bg-[#fffff0]">
         <GlobalAnimStyles />
         <div className="max-w-6xl mx-auto px-4 py-10 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-xl shadow-md text-center space-y-3 w-full max-w-md">
-            <CheckCircle className="w-12 h-12 text-green-600 mx-auto" />
-            <h2 className="text-2xl font-extrabold">รวม {lastSaved.total.toFixed(2)} บาท</h2>
-            <p className="text-sm text-gray-600">เลขที่บิล: {lastSaved.billNo}</p>
-            <p className="text-sm text-gray-600">{lastSaved.date} {lastSaved.time}</p>
-            <p className="text-sm text-gray-600">วิธีชำระ: {lastSaved.payment}</p>
-            <div className="text-sm space-y-1 mt-2">
-              <p>Subtotal: {lastSaved.subtotal.toFixed(2)} บาท</p>
-              <p>Discount: -{lastSaved.discount.toFixed(2)} บาท</p>
-              <p>Freebies: {lastSaved.freebiesQty} ชิ้น (มูลค่า {lastSaved.freebiesAmount.toFixed(2)} บาท)</p>
-            </div>
-            <button
-              onClick={() => setStep('cart')}
-              className="mt-4 px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 w-full sm:w-auto"
-            >
-              ทำรายการใหม่
-            </button>
-          </div>
+          <div className="bg-white p-6 rounded-xl shadow-md text-center space-y-3 w/full max-w-md">
+  {/* ✅ ไอคอนอนิเมชั่น */}
+  <AnimatedCheck size={72} />
+
+  {/* ✅ เฟดทีละบรรทัด: ใส่ delay ไล่กัน */}
+  <h2 className="text-2xl font-extrabold fade-up" style={{ animationDelay: '120ms' }}>
+    รวม {lastSaved.total.toFixed(2)} บาท
+  </h2>
+  <p className="text-sm text-gray-600 fade-up" style={{ animationDelay: '200ms' }}>
+    เลขที่บิล: {lastSaved.billNo}
+  </p>
+  <p className="text-sm text-gray-600 fade-up" style={{ animationDelay: '260ms' }}>
+    {lastSaved.date} {lastSaved.time}
+  </p>
+  <p className="text-sm text-gray-600 fade-up" style={{ animationDelay: '320ms' }}>
+    วิธีชำระ: {lastSaved.payment}
+  </p>
+
+  <div className="text-sm space-y-1 mt-2">
+    <p className="fade-up" style={{ animationDelay: '380ms' }}>
+      Subtotal: {lastSaved.subtotal.toFixed(2)} บาท
+    </p>
+    <p className="fade-up" style={{ animationDelay: '440ms' }}>
+      Discount: -{lastSaved.discount.toFixed(2)} บาท
+    </p>
+    <p className="fade-up" style={{ animationDelay: '500ms' }}>
+      Freebies: {lastSaved.freebiesQty} ชิ้น (มูลค่า {lastSaved.freebiesAmount.toFixed(2)} บาท)
+    </p>
+  </div>
+
+  <button
+    onClick={() => setStep('cart')}
+    className="mt-4 px-4 py-2 rounded-lg bg-[#ac0000] text-[#fffff0] hover:opacity-90 w-full sm:w-auto fade-up"
+    style={{ animationDelay: '560ms' }}
+  >
+    ทำรายการใหม่
+  </button>
+</div>
         </div>
       </main>
     );

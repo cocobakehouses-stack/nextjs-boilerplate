@@ -32,8 +32,16 @@ const toInt=(x:any)=>{ const n=Number(String(x??'').replace(/,/g,'').trim()); re
 const toNum=(x:any)=>{ const n=Number(String(x??'').replace(/,/g,'').trim()); return Number.isFinite(n)?n:0; };
 const nowInBangkok = () => {
   const d = new Date();
-  const date = new Intl.DateFormat('en-CA', { timeZone:'Asia/Bangkok' } as any).format(d);
-  const time = new Intl.DateTimeFormat('th-TH', { timeZone:'Asia/Bangkok', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).format(d).replace(/\./g,':');
+  const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(d); // YYYY-MM-DD
+  const time = new Intl.DateTimeFormat('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+    .format(d)
+    .replace(/\./g, ':');
   return { date, time };
 };
 

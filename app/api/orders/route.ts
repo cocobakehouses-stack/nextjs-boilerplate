@@ -1,3 +1,5 @@
+// app/api/orders/route.ts  (DROP-IN)
+
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { getAuth, ensureSheetExists, TZ } from '../../lib/sheets';
@@ -15,16 +17,13 @@ type Body = {
   items: Line[];
   freebies?: Line[];
 
-  // ฟิลด์จากฝั่ง POS
   subtotal?: number;
   freebiesAmount?: number;
   linemanMarkup?: number;
-  discount?: number;   // ✅ ใช้กับทุกวิธีจ่าย
-
-  total: number; // ยอดสุดท้าย
+  discount?: number;   // ใช้กับทุกวิธีจ่าย
+  total: number;
 };
 
-// escape tab name
 function a1Sheet(title: string) {
   const escaped = String(title).replace(/'/g, "''");
   return `'${escaped}'`;
@@ -99,7 +98,13 @@ export async function POST(req: Request) {
     const itemsText = items.map(i => `${i.name} x${i.qty}`).join('; ');
     const freebiesText = (freebies ?? []).map(f => `${f.name} x${f.qty}`).join('; ');
 
-    const totalQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+    // ✅ แยกนับ qty ให้ชัด: itemsQty (ขาย), freebiesQty (ฟรี)
+    const itemsQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+    const freebiesQty = (freebies ?? []).reduce((s, f) => s + (Number(f.qty) || 0), 0);
+
+    // ✅ ให้ F:TotalQty = "ขาย + ฟรี" เพื่อให้ไปลบ freebies ในหน้า History ได้ถูก
+    const totalQtyCombined = itemsQty + freebiesQty;
+
     const freebiesAmountCalc = (freebies ?? []).reduce((s, f) => s + (Number(f.price) || 0) * (Number(f.qty) || 0), 0);
 
     const subtotal = Number.isFinite(inSubtotal as number)
@@ -113,7 +118,7 @@ export async function POST(req: Request) {
     const linemanMarkup = Number.isFinite(inMarkup as number) ? Number(inMarkup) : 0;
     const discount = Number.isFinite(inDiscount as number) ? Number(inDiscount) : 0;
 
-    // ถ้าฝั่ง client ไม่ส่ง total มา ให้คำนวณซ้ำเพื่อกันพลาด
+    // fallback คำนวณ total ซ้ำ
     const computedTotal = Number((subtotal - freebiesAmount - discount + linemanMarkup).toFixed(2));
     const finalTotal = Number.isFinite(inTotal) ? Number(inTotal) : computedTotal;
 
@@ -124,18 +129,18 @@ export async function POST(req: Request) {
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [[
-          useDate,                 // A: Date
-          useTime,                 // B: Time
-          useBillNo,               // C: BillNo
-          itemsText,               // D: Items
-          freebiesText,            // E: Freebies
-          String(totalQty),        // F: TotalQty
-          payment,                 // G: Payment
-          finalTotal.toFixed(2),   // H: Total
+          useDate,                   // A: Date
+          useTime,                   // B: Time
+          useBillNo,                 // C: BillNo
+          itemsText,                 // D: Items
+          freebiesText,              // E: Freebies
+          String(totalQtyCombined),  // F: TotalQty (ขาย+ฟรี)  ← สำคัญ
+          payment,                   // G: Payment
+          finalTotal.toFixed(2),     // H: Total
           freebiesAmount.toFixed(2), // I: FreebiesAmount
-          subtotal.toFixed(2),     // J: Subtotal
-          linemanMarkup.toFixed(2),// K: LinemanMarkup
-          discount.toFixed(2),     // L: Discount (ทุกวิธีจ่าย)
+          subtotal.toFixed(2),       // J: Subtotal
+          linemanMarkup.toFixed(2),  // K: LinemanMarkup
+          discount.toFixed(2),       // L: Discount (ใช้กับทุกวิธีจ่าย)
         ]],
       },
     });
@@ -145,6 +150,8 @@ export async function POST(req: Request) {
       saved: {
         date: useDate, time: useTime, billNo: useBillNo, payment, total: finalTotal,
         tab: tabTitle, freebiesAmount, subtotal, linemanMarkup, discount,
+        // ให้ client ใช้ต่อได้ถ้าต้องแสดง quick summary
+        itemsQty, freebiesQty, totalQty: totalQtyCombined,
       },
     });
   } catch (e: any) {

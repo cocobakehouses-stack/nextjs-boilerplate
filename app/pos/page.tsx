@@ -65,7 +65,7 @@ function AnimatedCheck({ size = 84 }: { size?: number }) {
         strokeLinecap="round"
         strokeDasharray={c}
         strokeDashoffset={c}
-        style={{ animation: 'dash 300ms ease cubic-bezier' }}
+        style={{ animation: 'dash 200ms ease cubic-bezier' }}
       />
       {/* ขีดถูก */}
       <path

@@ -45,8 +45,8 @@ html,body{ color:var(--text); background:var(--surface-muted); }
     /* Dark Mode surfaces */
     --surface: #171717;
     --surface-muted: #0a0a0a;
-    --text: #ededed;
-    --text-muted: #9ca3af;
+    --text: #fffff;
+    --text-muted: #fffff;
   }
 }
 

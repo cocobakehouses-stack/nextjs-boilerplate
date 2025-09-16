@@ -1,4 +1,4 @@
-// app/api/orders/route.ts  (DROP-IN)
+// app/api/orders/route.ts  (DROP-IN FIX)
 
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
@@ -77,7 +77,12 @@ export async function POST(req: Request) {
       total: inTotal,
     } = (await req.json()) as Body;
 
-    if (!location || !items?.length || !payment || typeof inTotal !== 'number') {
+    // ✅ เงื่อนไขใหม่: ต้องมีอย่างน้อยหนึ่งใน items หรือ freebies
+    const hasItems = Array.isArray(items) && items.length > 0;
+    const hasFreebies = Array.isArray(freebies) && freebies.length > 0;
+    const hasLines = hasItems || hasFreebies;
+
+    if (!location || !hasLines || !payment || !Number.isFinite(inTotal as number)) {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
 
@@ -95,21 +100,24 @@ export async function POST(req: Request) {
     let useBillNo = (billNo ?? '').trim();
     if (!useBillNo) useBillNo = await getNextBillNoForDate(sheets, spreadsheetId, tabTitle, useDate);
 
-    const itemsText = items.map(i => `${i.name} x${i.qty}`).join('; ');
-    const freebiesText = (freebies ?? []).map(f => `${f.name} x${f.qty}`).join('; ');
+    const itemsText = (items || []).map(i => `${i.name} x${i.qty}`).join('; ');
+    const freebiesText = (freebies || []).map(f => `${f.name} x${f.qty}`).join('; ');
 
-    // ✅ แยกนับ qty ให้ชัด: itemsQty (ขาย), freebiesQty (ฟรี)
-    const itemsQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
-    const freebiesQty = (freebies ?? []).reduce((s, f) => s + (Number(f.qty) || 0), 0);
-
-    // ✅ ให้ F:TotalQty = "ขาย + ฟรี" เพื่อให้ไปลบ freebies ในหน้า History ได้ถูก
+    // Qty แยกขาย/ฟรี
+    const itemsQty = (items || []).reduce((s, i) => s + (Number(i.qty) || 0), 0);
+    const freebiesQty = (freebies || []).reduce((s, f) => s + (Number(f.qty) || 0), 0);
     const totalQtyCombined = itemsQty + freebiesQty;
 
-    const freebiesAmountCalc = (freebies ?? []).reduce((s, f) => s + (Number(f.price) || 0) * (Number(f.qty) || 0), 0);
+    // มูลค่าฟรี
+    const freebiesAmountCalc = (freebies || []).reduce(
+      (s, f) => s + (Number(f.price) || 0) * (Number(f.qty) || 0),
+      0
+    );
 
+    // subtotal (เฉพาะรายการขาย)
     const subtotal = Number.isFinite(inSubtotal as number)
       ? Number(inSubtotal)
-      : items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 0), 0);
+      : (items || []).reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 0), 0);
 
     const freebiesAmount = Number.isFinite(inFreebiesAmount as number)
       ? Number(inFreebiesAmount)
@@ -118,7 +126,7 @@ export async function POST(req: Request) {
     const linemanMarkup = Number.isFinite(inMarkup as number) ? Number(inMarkup) : 0;
     const discount = Number.isFinite(inDiscount as number) ? Number(inDiscount) : 0;
 
-    // fallback คำนวณ total ซ้ำ
+    // คำนวณ total เผื่อ client ไม่ส่งมา
     const computedTotal = Number((subtotal - freebiesAmount - discount + linemanMarkup).toFixed(2));
     const finalTotal = Number.isFinite(inTotal) ? Number(inTotal) : computedTotal;
 
@@ -134,13 +142,13 @@ export async function POST(req: Request) {
           useBillNo,                 // C: BillNo
           itemsText,                 // D: Items
           freebiesText,              // E: Freebies
-          String(totalQtyCombined),  // F: TotalQty (ขาย+ฟรี)  ← สำคัญ
+          String(totalQtyCombined),  // F: TotalQty (ขาย+ฟรี)
           payment,                   // G: Payment
           finalTotal.toFixed(2),     // H: Total
           freebiesAmount.toFixed(2), // I: FreebiesAmount
           subtotal.toFixed(2),       // J: Subtotal
           linemanMarkup.toFixed(2),  // K: LinemanMarkup
-          discount.toFixed(2),       // L: Discount (ใช้กับทุกวิธีจ่าย)
+          discount.toFixed(2),       // L: Discount
         ]],
       },
     });
@@ -150,7 +158,6 @@ export async function POST(req: Request) {
       saved: {
         date: useDate, time: useTime, billNo: useBillNo, payment, total: finalTotal,
         tab: tabTitle, freebiesAmount, subtotal, linemanMarkup, discount,
-        // ให้ client ใช้ต่อได้ถ้าต้องแสดง quick summary
         itemsQty, freebiesQty, totalQty: totalQtyCombined,
       },
     });

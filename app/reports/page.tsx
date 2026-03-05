@@ -49,23 +49,18 @@ async function load() {
   try {
     const q = new URLSearchParams({
       location: locId,
-      period: period, // Added this line
+      period: period, // MUST pass the period
       start: rangeStart,
       end: rangeEnd,
     }).toString();
     
     const res = await fetch(`/api/reports?${q}`, { cache: 'no-store' });
-    
-    if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Fetch failed');
-    }
-
     const data = await res.json();
+    
+    // If backend returns an error, rows might be undefined
     setRows(Array.isArray(data?.rows) ? data.rows : []);
-  } catch (err) {
-    console.error("Failed to load report:", err);
-    alert("Error loading report. Check console for details.");
+  } catch (e) {
+    console.error(e);
     setRows([]);
   } finally {
     setLoading(false);

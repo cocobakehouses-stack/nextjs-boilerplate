@@ -48,30 +48,47 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const location = (url.searchParams.get('location') || 'ORDERS').toUpperCase();
     const period = (url.searchParams.get('period') || 'daily') as Period;
-    const start = url.searchParams.get('start');
-    const end = url.searchParams.get('end');
+    
+    // 1. Get query params
+    const queryStart = url.searchParams.get('start');
+    const queryEnd = url.searchParams.get('end');
 
-    if (!['daily', 'weekly', 'monthly'].includes(period)) {
-      return NextResponse.json({ error: 'Invalid period' }, { status: 400 });
+    // 2. Logic: If user provides specific dates, use them. Otherwise, use period defaults.
+    let startDate: string;
+    let endDate: string;
+
+    if (queryStart && queryEnd) {
+      startDate = queryStart;
+      endDate = queryEnd;
+    } else {
+      const { start: sDef, end: eDef } = defaultRange(period);
+      startDate = sDef;
+      endDate = eDef;
     }
 
-    const { start: sDef, end: eDef } = defaultRange(period);
-    const startDate = start || sDef;
-    const endDate = end || eDef;
-
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
+    if (!spreadsheetId) throw new Error("Missing GOOGLE_SHEETS_ID");
+
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // ให้แน่ใจว่ามีแท็บปลายทาง (สร้างอัตโนมัติถ้าไม่มี)
     await ensureSheetExists(sheets, spreadsheetId, location);
 
-    // ⬇️ ใช้ signature 4 อาร์กิวเมนต์: (spreadsheetId, tabTitle, startDate, endDate)
+    // Fetching data
     const rows = await fetchHistoryRange(spreadsheetId, location, startDate, endDate);
 
-    // รายการรวมทั้งช่วง (grand total)
+    // If rows are empty, return an empty array instead of failing
+    if (!rows || rows.length === 0) {
+        return NextResponse.json({ 
+            location, 
+            range: { start: startDate, end: endDate }, 
+            rows: [], 
+            grand: {}, 
+            buckets: {} 
+        });
+    }
+
     const grand = summarizeTotals(rows);
-    // สรุปแบ่งตาม period
     const buckets = aggregateByPeriod(rows, period);
 
     return NextResponse.json(
@@ -81,13 +98,12 @@ export async function GET(req: Request) {
         range: { start: startDate, end: endDate },
         grand,
         buckets,
-        rows,                 
-
+        rows,
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (e: any) {
-    console.error('GET /api/reports error', e?.message || e);
-    return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
+    console.error('GET /api/reports error', e);
+    return NextResponse.json({ error: e?.message || 'Internal Server Error' }, { status: 500 });
   }
 }

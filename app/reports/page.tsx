@@ -43,23 +43,34 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<OrderRow[]>([]);
 
-  async function load() {
-    if (!locId || !rangeStart || !rangeEnd) return;
-    setLoading(true);
-    try {
-      const q = new URLSearchParams({
-        location: locId,
-        start: rangeStart,
-        end: rangeEnd,
-      }).toString();
-      const res = await fetch(`/api/reports?${q}`, { cache: 'no-store' });
-      const data = await res.json().catch(() => ({}));
-      setRows(Array.isArray(data?.rows) ? data.rows : []);
-    } finally {
-      setLoading(false);
+async function load() {
+  if (!locId || !rangeStart || !rangeEnd) return;
+  setLoading(true);
+  try {
+    const q = new URLSearchParams({
+      location: locId,
+      period: period, // Added this line
+      start: rangeStart,
+      end: rangeEnd,
+    }).toString();
+    
+    const res = await fetch(`/api/reports?${q}`, { cache: 'no-store' });
+    
+    if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Fetch failed');
     }
-  }
 
+    const data = await res.json();
+    setRows(Array.isArray(data?.rows) ? data.rows : []);
+  } catch (err) {
+    console.error("Failed to load report:", err);
+    alert("Error loading report. Check console for details.");
+    setRows([]);
+  } finally {
+    setLoading(false);
+  }
+}
   // ===== GRAND SUMMARY =====
   const grand = useMemo(() => {
     if (rows.length === 0) {

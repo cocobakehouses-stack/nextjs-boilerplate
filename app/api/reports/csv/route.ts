@@ -1,5 +1,10 @@
 // app/api/reports/csv/route.ts
 import { NextResponse } from 'next/server';
+import { google } from 'googleapis';
+import { 
+  getAuth, 
+  fetchHistoryRange 
+} from '../../../lib/sheets'; // Double-check this path matches your folder structure
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +25,7 @@ type OrderRow = {
   payment: 'cash' | 'promptpay' | 'lineman';
 };
 
+// --- HELPER FUNCTIONS ---
 function csvEscape(v: any): string {
   if (v === null || v === undefined) return '';
   const s = String(v);
@@ -41,7 +47,7 @@ function reduceTotals(rows: OrderRow[]) {
   const byPayment: Record<string, number> = {};
 
   for (const r of rows) {
-    const qty = r.items.reduce((s, i) => s + (i.qty || 0), 0);
+    const qty = r.items?.reduce((s, i) => s + (Number(i.qty) || 0), 0) || 0;
     const freeAmt = (r.freebies || []).reduce(
       (s, f) => s + (Number(f.qty) || 0) * (Number(f.price) || 0),
       0
@@ -58,19 +64,20 @@ function reduceTotals(rows: OrderRow[]) {
 function productSummary(rows: OrderRow[]) {
   const map: Record<string, { qty: number; amount: number }> = {};
   for (const r of rows) {
-    for (const i of r.items) {
+    for (const i of r.items || []) {
       if (!map[i.name]) map[i.name] = { qty: 0, amount: 0 };
-      map[i.name].qty += i.qty || 0;
-      map[i.name].amount += (i.price || 0) * (i.qty || 0);
+      map[i.name].qty += Number(i.qty) || 0;
+      map[i.name].amount += (Number(i.price) || 0) * (Number(i.qty) || 0);
     }
   }
   return map;
 }
 
+// --- MAIN GET HANDLER ---
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const location = url.searchParams.get('location') || '';
+    const location = (url.searchParams.get('location') || '').toUpperCase();
     const start = url.searchParams.get('start') || '';
     const end = url.searchParams.get('end') || '';
 
@@ -78,30 +85,33 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Missing location/start/end' }, { status: 400 });
     }
 
-    const qs = new URLSearchParams({ location, start, end });
-    const base = `${url.origin}`;
-    const res = await fetch(`${base}/api/reports?${qs.toString()}`, { cache: 'no-store' });
-    const data = await res.json().catch(() => ({}));
-    const rows: OrderRow[] = Array.isArray(data?.rows) ? data.rows : [];
+    // FIX: Talk to Google Sheets directly
+    const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
+    const auth = getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // Fetch the data directly using your shared lib helper
+    const rows: OrderRow[] = await fetchHistoryRange(spreadsheetId, location, start, end);
+
+    if (!rows || rows.length === 0) {
+      const emptyCsv = '\uFEFF' + 'No data found for the selected period and location.';
+      return new NextResponse(emptyCsv, {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="empty_report.csv"`,
+        },
+      });
+    }
 
     const totals = reduceTotals(rows);
 
     const header = [
-      'BillNo',
-      'Date',
-      'Time',
-      'Location',
-      'Payment',
-      'Subtotal',
-      'Discount',
-      'LinemanMarkup',
-      'LinemanDiscount',
-      'Total',
-      'Items',
-      'Freebies',
+      'BillNo', 'Date', 'Time', 'Location', 'Payment',
+      'Subtotal', 'Discount', 'LinemanMarkup', 'LinemanDiscount', 'Total',
+      'Items', 'Freebies',
     ];
 
-    const body = rows
+    const body = [...rows]
       .sort((a, b) => Number(b.billNo) - Number(a.billNo))
       .map((r) => [
         r.billNo ?? '',
@@ -118,9 +128,8 @@ export async function GET(req: Request) {
         formatItems(r.freebies || []),
       ]);
 
-    // --- summary top ---
     const summaryTop = [
-      ['SUMMARY (Top)'],
+      ['SUMMARY'],
       [`Bills: ${totals.count}`],
       [`Total Qty: ${totals.totalQty}`],
       [`Total Amount: ${totals.totalAmount.toFixed(2)}`],
@@ -131,63 +140,21 @@ export async function GET(req: Request) {
             .map(([k, v]) => `${k}: ${v.toFixed(2)}`)
             .join(' | '),
       ],
-      [''], // ช่องว่าง
+      [''], 
     ];
 
-    // --- summary bottom ---
-    const summaryBottom = [
-      [''],
-      ['SUMMARY (Bottom)'],
-      [`Bills: ${totals.count}`],
-      [`Total Qty: ${totals.totalQty}`],
-      [`Total Amount: ${totals.totalAmount.toFixed(2)}`],
-      [`Freebies Amount: ${totals.freebiesAmount.toFixed(2)}`],
-      [
-        'By Payment: ' +
-          Object.entries(totals.byPayment)
-            .map(([k, v]) => `${k}: ${v.toFixed(2)}`)
-            .join(' | '),
-      ],
-    ];
-
-    // --- product summary per location ---
     let productLines: string[] = [];
-    if (rows.length > 0) {
-      // group by location
-      const grouped: Record<string, OrderRow[]> = {};
-      for (const r of rows) {
-        if (!grouped[r.location]) grouped[r.location] = [];
-        grouped[r.location].push(r);
-      }
-
-      productLines.push('');
-      productLines.push('PRODUCT SUMMARY');
-
-      for (const [loc, rs] of Object.entries(grouped)) {
-        productLines.push('');
-        productLines.push(`Location: ${loc}`);
-        productLines.push('Product,Qty,Amount');
-        const map = productSummary(rs);
-        for (const [name, v] of Object.entries(map)) {
-          productLines.push([csvEscape(name), v.qty, v.amount.toFixed(2)].join(','));
-        }
-      }
-
-      // all locations
-      productLines.push('');
-      productLines.push('All Locations');
-      productLines.push('Product,Qty,Amount');
-      const allMap = productSummary(rows);
-      for (const [name, v] of Object.entries(allMap)) {
-        productLines.push([csvEscape(name), v.qty, v.amount.toFixed(2)].join(','));
-      }
+    productLines.push('');
+    productLines.push('PRODUCT SUMMARY');
+    const allMap = productSummary(rows);
+    for (const [name, v] of Object.entries(allMap)) {
+      productLines.push([csvEscape(name), v.qty, v.amount.toFixed(2)].join(','));
     }
 
     const lines = [
       ...summaryTop.map((row) => row.map(csvEscape).join(',')),
       header.map(csvEscape).join(','),
       ...body.map((row) => row.map(csvEscape).join(',')),
-      ...summaryBottom.map((row) => row.map(csvEscape).join(',')),
       ...productLines,
     ];
 
@@ -203,7 +170,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (e: any) {
-    console.error('GET /api/reports/csv error:', e?.message || e);
-    return NextResponse.json({ error: 'CSV export failed' }, { status: 500 });
+    console.error('CSV Export Error:', e);
+    return NextResponse.json({ error: 'CSV export failed: ' + e.message }, { status: 500 });
   }
 }

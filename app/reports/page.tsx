@@ -1,4 +1,3 @@
-// app/reports/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -25,9 +24,27 @@ type OrderRow = {
 };
 
 const TZ = 'Asia/Bangkok';
+
 function toBangkokDateString(d: Date = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
 }
+
+// Improved Safety Guard
+function safeParseItems(data: any): Line[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'string') {
+    if (data.trim() === '' || data === '[]') return [];
+    try {
+      return JSON.parse(data);
+    } catch (e) {
+      console.error("Failed to parse items string:", data);
+      return [];
+    }
+  }
+  return [];
+}
+
 function fmt(n: number, digits = 2) {
   return Number(n || 0).toLocaleString('en-US', {
     minimumFractionDigits: digits,
@@ -43,32 +60,30 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<OrderRow[]>([]);
 
-async function load() {
-  if (!locId || !rangeStart || !rangeEnd) return;
-  setLoading(true);
-  try {
-    const q = new URLSearchParams({
-      location: locId,
-      period: period, // MUST pass the period
-      start: rangeStart,
-      end: rangeEnd,
-    }).toString();
-    
-    const res = await fetch(`/api/reports?${q}`, { cache: 'no-store' });
-    const data = await res.json();
-    
-    // If backend returns an error, rows might be undefined
-    setRows(Array.isArray(data?.rows) ? data.rows : []);
-  } catch (e) {
-    console.error(e);
-    setRows([]);
-  } finally {
-    setLoading(false);
+  async function load() {
+    if (!locId || !rangeStart || !rangeEnd) return;
+    setLoading(true);
+    try {
+      const q = new URLSearchParams({
+        location: locId,
+        period: period,
+        start: rangeStart,
+        end: rangeEnd,
+      }).toString();
+      
+      const res = await fetch(`/api/reports?${q}`, { cache: 'no-store' });
+      const data = await res.json();
+      setRows(Array.isArray(data?.rows) ? data.rows : []);
+    } catch (e) {
+      console.error(e);
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
   }
-}
-  // ===== GRAND SUMMARY =====
+
   const grand = useMemo(() => {
-    if (rows.length === 0) {
+    if (!rows || rows.length === 0) {
       return { count: 0, totalQty: 0, totalAmount: 0, freebiesAmount: 0, byPayment: {} as Record<string, number> };
     }
     let count = rows.length;
@@ -76,12 +91,14 @@ async function load() {
     let totalAmount = 0;
     let freebiesAmount = 0;
     const byPayment: Record<string, number> = {};
+
     for (const r of rows) {
-      const qty = r.items.reduce((s, i) => s + (i.qty || 0), 0);
-      const freeAmt = (r.freebies || []).reduce(
-        (s, f) => s + (Number(f.qty) || 0) * (Number(f.price) || 0),
-        0
-      );
+      const items = safeParseItems(r.items);
+      const freebies = safeParseItems(r.freebies);
+
+      const qty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+      const freeAmt = freebies.reduce((s, f) => s + (Number(f.qty) || 0) * (Number(f.price) || 0), 0);
+
       totalQty += qty;
       totalAmount += Number(r.total || 0);
       freebiesAmount += freeAmt;
@@ -91,20 +108,23 @@ async function load() {
     return { count, totalQty, totalAmount, freebiesAmount, byPayment };
   }, [rows]);
 
-  // ===== PRODUCT SUMMARY + LINEMAN SPLIT =====
   const { productMap, totalQtyAll, totalAmountAll, linemanQty, linemanAmount } = useMemo(() => {
     const map: Record<string, { qty: number; amount: number }> = {};
     let totalQty = 0;
     let totalAmount = 0;
     let lmQty = 0;
     let lmAmount = 0;
+
     for (const r of rows) {
-      const billQty = r.items.reduce((s, i) => s + (i.qty || 0), 0);
-      for (const i of r.items) {
+      const items = safeParseItems(r.items);
+      const billQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+
+      for (const i of items) {
         if (!map[i.name]) map[i.name] = { qty: 0, amount: 0 };
-        map[i.name].qty += i.qty || 0;
-        map[i.name].amount += (i.price || 0) * (i.qty || 0);
+        map[i.name].qty += Number(i.qty) || 0;
+        map[i.name].amount += (Number(i.price) || 0) * (Number(i.qty) || 0);
       }
+
       totalQty += billQty;
       totalAmount += Number(r.total || 0);
       if (r.payment === 'lineman') {
@@ -115,41 +135,25 @@ async function load() {
     return { productMap: map, totalQtyAll: totalQty, totalAmountAll: totalAmount, linemanQty: lmQty, linemanAmount: lmAmount };
   }, [rows]);
 
-  // ===== SORT BILL DESC =====
   const sortedRows = useMemo(() => [...rows].sort((a, b) => Number(b.billNo) - Number(a.billNo)), [rows]);
 
-  // ===== EXPORT CSV (ทั้ง “เฉพาะ location ที่เลือก” และ “ALL”) =====
   const csvLinks = useMemo(() => {
     if (!locId || !rangeStart || !rangeEnd) {
-      return {
-        currentHref: '#',
-        currentName: '',
-        allHref: '#',
-        allName: '',
-        disabled: true,
-      };
+      return { currentHref: '#', currentName: '', allHref: '#', allName: '', disabled: true };
     }
     const qsCurrent = new URLSearchParams({ location: String(locId), start: rangeStart, end: rangeEnd });
     const qsAll = new URLSearchParams({ location: 'ALL', start: rangeStart, end: rangeEnd });
-
-    const currentHref = `/api/reports/csv?${qsCurrent.toString()}`;
-    const allHref = `/api/reports/csv?${qsAll.toString()}`;
-
-    const baseCurrent = `reports_${locId}_${rangeStart}_${rangeEnd}.csv`;
-    const baseAll = `reports_ALL_${rangeStart}_${rangeEnd}.csv`;
-
     return {
-      currentHref,
-      currentName: baseCurrent,
-      allHref,
-      allName: baseAll,
+      currentHref: `/api/reports/csv?${qsCurrent.toString()}`,
+      currentName: `reports_${locId}_${rangeStart}_${rangeEnd}.csv`,
+      allHref: `/api/reports/csv?${qsAll.toString()}`,
+      allName: `reports_ALL_${rangeStart}_${rangeEnd}.csv`,
       disabled: false,
     };
   }, [locId, rangeStart, rangeEnd]);
 
   return (
     <main className="min-h-screen bg-[var(--surface-muted)]">
-      {/* Sticky header */}
       <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
         <div className="max-w-6xl mx-auto px-4 py-2">
           <HeaderMenu />
@@ -162,24 +166,17 @@ async function load() {
           Reports
         </h1>
 
-        {/* Controls */}
         <div className="bg-[var(--surface-muted)] rounded-xl p-4 mb-6 flex flex-wrap items-end gap-3 border">
           <LocationPicker value={locId} onChange={(id) => setLocId(id)} includeAll />
-
           <div>
             <label className="block text-sm text-gray-600 mb-1">Period</label>
-            <select
-              className="rounded border px-3 py-2 bg-white"
-              value={period}
-              onChange={(e) => setPeriod(e.target.value as Period)}
-            >
+            <select className="rounded border px-3 py-2 bg-white" value={period} onChange={(e) => setPeriod(e.target.value as Period)}>
               <option value="daily">Daily</option>
               <option value="weekly">Weekly</option>
               <option value="monthly">Monthly</option>
               <option value="range">Custom Range</option>
             </select>
           </div>
-
           <div>
             <label className="block text-sm text-gray-600 mb-1">Start</label>
             <input type="date" className="rounded border px-3 py-2 bg-white" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} />
@@ -195,35 +192,15 @@ async function load() {
               className="px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90 disabled:opacity-40 flex items-center gap-2"
               disabled={!locId || !rangeStart || !rangeEnd || loading}
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
               {loading ? 'Loading…' : 'Generate'}
             </button>
-
-            {/* CSV (เฉพาะ location ที่เลือก) */}
-            <a
-              href={csvLinks.currentHref}
-              download={csvLinks.currentName}
-              onClick={(e) => { if (csvLinks.disabled) e.preventDefault(); }}
-              aria-disabled={csvLinks.disabled}
-              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
-            >
-              Export CSV (This location)
-            </a>
-
-            {/* CSV (รวมทุกสาขา) */}
-            <a
-              href={csvLinks.allHref}
-              download={csvLinks.allName}
-              onClick={(e) => { if (csvLinks.disabled) e.preventDefault(); }}
-              aria-disabled={csvLinks.disabled}
-              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
-            >
-              Export CSV (All locations)
+            <a href={csvLinks.currentHref} download={csvLinks.currentName} className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40" onClick={(e) => csvLinks.disabled && e.preventDefault()}>
+              Export CSV
             </a>
           </div>
         </div>
 
-        {/* Summary */}
         {rows.length > 0 && !loading && (
           <div className="rounded-xl border bg-white p-4 mb-6 space-y-6">
             <section>
@@ -233,8 +210,7 @@ async function load() {
               <div>Freebies Amount: {fmt(grand.freebiesAmount)} THB</div>
               {Object.keys(grand.byPayment).length > 0 && (
                 <div className="text-gray-700">
-                  By Payment:{' '}
-                  {Object.entries(grand.byPayment).map(([k, v]) => `${k}: ${fmt(v)} THB`).join(' | ')}
+                  By Payment: {Object.entries(grand.byPayment).map(([k, v]) => `${k}: ${fmt(v)} THB`).join(' | ')}
                 </div>
               )}
             </section>
@@ -247,80 +223,42 @@ async function load() {
                     <li key={name}>{name}: {v.qty} ชิ้น = {fmt(v.amount)} บาท</li>
                   ))}
                 </ul>
-                <div className="mt-2 font-semibold">
-                  รวมทั้งหมด: {totalQtyAll} ชิ้น = {fmt(totalAmountAll)} บาท
-                </div>
-              </div>
-
-              <div className="p-3 border rounded bg-gray-50">
-                <div className="font-semibold">🚚 Lineman (separate)</div>
-                <div>Total Qty: {linemanQty}</div>
-                <div>Total Amount: {fmt(linemanAmount)} THB</div>
+                <div className="mt-2 font-semibold">รวมทั้งหมด: {totalQtyAll} ชิ้น = {fmt(totalAmountAll)} บาท</div>
               </div>
             </section>
           </div>
         )}
 
-        {/* Table */}
         {rows.length > 0 && !loading && (
-          <>
-            <div className="overflow-x-auto rounded-xl border bg-white">
-              <table className="w-full text-sm">
-                <thead className="bg-[var(--surface-muted)] border-b">
-                  <tr className="[&>th]:px-2 [&>th]:py-2 text-left">
-                    <th>BillNo</th>
-                    <th>Date</th>
-                    <th>Time</th>
-                    <th>Location</th>
-                    <th>Items</th>
-                    <th className="text-right">Subtotal</th>
-                    <th className="text-right">Discount</th>
-                    <th className="text-right">Markup</th>
-                    <th className="text-right">Total</th>
-                    <th>Payment</th>
+          <div className="overflow-x-auto rounded-xl border bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-[var(--surface-muted)] border-b">
+                <tr className="[&>th]:px-2 [&>th]:py-2 text-left">
+                  <th>BillNo</th><th>Date</th><th>Time</th><th>Location</th><th>Items</th>
+                  <th className="text-right">Subtotal</th><th className="text-right">Discount</th>
+                  <th className="text-right">Markup</th><th className="text-right">Total</th><th>Payment</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedRows.map((r) => (
+                  <tr key={`${r.location}-${r.billNo}-${r.time}`} className="border-b last:border-0 hover:bg-gray-50">
+                    <td className="px-2 py-2">{r.billNo}</td>
+                    <td className="px-2 py-2">{r.date}</td>
+                    <td className="px-2 py-2">{r.time}</td>
+                    <td className="px-2 py-2">{r.location}</td>
+                    <td className="px-2 py-2">
+                      {safeParseItems(r.items).map((i: any) => `${i.name}x${i.qty}`).join(', ')}
+                    </td>
+                    <td className="px-2 py-2 text-right">{fmt(r.subtotal)}</td>
+                    <td className="px-2 py-2 text-right">{fmt(r.discount ?? 0)}</td>
+                    <td className="px-2 py-2 text-right">{fmt(r.linemanMarkup ?? 0)}</td>
+                    <td className="px-2 py-2 text-right font-semibold">{fmt(r.total)}</td>
+                    <td className="px-2 py-2">{r.payment}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {sortedRows.map((r) => (
-                    <tr key={`${r.location}-${r.billNo}-${r.time}`} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="px-2 py-2">{r.billNo}</td>
-                      <td className="px-2 py-2">{r.date}</td>
-                      <td className="px-2 py-2">{r.time}</td>
-                      <td className="px-2 py-2">{r.location}</td>
-                      <td className="px-2 py-2">{r.items.map((i) => `${i.name}x${i.qty}`).join(', ')}</td>
-                      <td className="px-2 py-2 text-right">{fmt(r.subtotal)}</td>
-                      <td className="px-2 py-2 text-right">{fmt(r.discount ?? 0)}</td>
-                      <td className="px-2 py-2 text-right">{fmt(r.linemanMarkup ?? 0)}</td>
-                      <td className="px-2 py-2 text-right font-semibold">{fmt(r.total)}</td>
-                      <td className="px-2 py-2">{r.payment}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Bottom export bar (เหมือนด้านบน) */}
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <a
-                href={csvLinks.currentHref}
-                download={csvLinks.currentName}
-                onClick={(e) => { if (csvLinks.disabled) e.preventDefault(); }}
-                aria-disabled={csvLinks.disabled}
-                className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
-              >
-                Export CSV (This location)
-              </a>
-              <a
-                href={csvLinks.allHref}
-                download={csvLinks.allName}
-                onClick={(e) => { if (csvLinks.disabled) e.preventDefault(); }}
-                aria-disabled={csvLinks.disabled}
-                className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"
-              >
-                Export CSV (All locations)
-              </a>
-            </div>
-          </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {rows.length === 0 && !loading && (

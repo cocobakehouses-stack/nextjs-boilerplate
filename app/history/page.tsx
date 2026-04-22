@@ -114,6 +114,27 @@ export default function HistoryPage() {
     return { count, soldQty, freebiesQty, totalAmount, freebiesAmount, byPayment };
   }
 
+  async function handleVoid(billNo: string, location: string) {
+  if (!confirm(`Confirm voiding Bill #${billNo}? This will mark it as VOIDED.`)) return;
+
+  try {
+    const res = await fetch('/api/history/void', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ billNo, location }),
+    });
+
+    if (res.ok) {
+      alert('Success!');
+      // Assuming your history page has a 'refresh' or 'load' function
+      window.location.reload(); 
+    } else {
+      alert('Failed to void bill.');
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
   // ---- fetch history
   async function fetchHistory() {
     setLoading(true);

@@ -321,53 +321,89 @@ export default function HistoryPage() {
   </div>
 )}
 
-        {/* TABLE SECTION */}
-        <div className="rounded-xl border bg-white p-4">
-          {rows.length === 0 ? <div className="text-gray-500 text-center py-10">No records found.</div> : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 border-b">
-                  <tr className="[&>th]:py-3 [&>th]:px-2 text-left">
-                    {location === ALL_ID && <th>Location</th>}
-                    <th>Time</th><th>Bill</th><th>Items</th><th>Total</th><th>Payment</th><th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, idx) => {
-                    const isVoided = r.status === 'VOIDED';
-                    const pay = (r.payment || '').toLowerCase();
-                    let badgeClass = "bg-blue-100 text-blue-700";
-                    if (isVoided) badgeClass = "bg-gray-200 text-gray-600";
-                    else if (pay === 'cash') badgeClass = "bg-orange-100 text-orange-900";
-                    
-                    return (
-                      <tr key={idx} className={`border-b last:border-0 ${isVoided ? 'bg-gray-50 opacity-60' : ''}`}>
-                        {location === ALL_ID && <td className="p-2">{r.location}</td>}
-                        <td className="p-2">{r.time}</td>
-                        <td className="p-2 font-mono">{r.billNo}</td>
-                        <td className="p-2 max-w-[300px] truncate">{r.items}</td>
-                        <td className="p-2 font-bold">{isVoided ? '0.00' : Number(r.total).toFixed(2)}</td>
-                        <td className="p-2">
-                           <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${badgeClass}`}>
-                             {isVoided ? 'VOIDED' : r.payment}
-                           </span>
-                        </td>
-                        <td className="p-2">
-                          {!isVoided && (
-                            <button onClick={() => handleVoid(r.billNo, r.location)} className="text-red-500 hover:text-red-700">
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
+  {/* TABLE SECTION */}
+<div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="bg-gray-50 border-b">
+        <tr className="text-left text-gray-500 uppercase text-[10px] tracking-wider">
+          <th className="px-4 py-3">Time</th>
+          <th className="px-4 py-3">Bill</th>
+          <th className="px-4 py-3">Items</th>
+          <th className="px-4 py-3 text-center">Qty</th>
+          <th className="px-4 py-3">Payment</th>
+          <th className="px-4 py-3 text-right">Total</th>
+          <th className="px-4 py-3">Freebies</th>
+          <th className="px-4 py-3 text-center">Action</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {rows.length === 0 ? (
+          <tr>
+            <td colSpan={8} className="px-4 py-10 text-center text-gray-500">
+              {loading ? 'Loading history...' : 'No records found for this date.'}
+            </td>
+          </tr>
+        ) : (
+          rows.map((r, idx) => {
+            const isVoided = r.status === 'VOIDED';
+            const pay = (r.payment || '').toLowerCase();
+            
+            // Badge Colors
+            let badgeClass = "bg-blue-100 text-blue-700"; // Default (PromptPay/Lineman)
+            if (isVoided) badgeClass = "bg-gray-200 text-gray-500";
+            else if (pay === 'cash') badgeClass = "bg-orange-100 text-orange-900";
+            else if (pay === 'lineman') badgeClass = "bg-emerald-100 text-emerald-700";
+
+            return (
+              <tr 
+                key={idx} 
+                className={`transition-colors ${isVoided ? 'bg-gray-50/80' : 'hover:bg-gray-50/50'}`}
+              >
+                <td className={`px-4 py-3 tabular-nums ${isVoided ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {r.time}
+                </td>
+                <td className={`px-4 py-3 font-mono ${isVoided ? 'text-gray-400' : 'text-gray-900'}`}>
+                  {r.billNo}
+                </td>
+                <td className={`px-4 py-3 max-w-[250px] truncate ${isVoided ? 'text-gray-400 italic' : 'text-gray-700'}`}>
+                  {r.items}
+                </td>
+                <td className={`px-4 py-3 text-center tabular-nums ${isVoided ? 'text-gray-400' : 'font-medium'}`}>
+                  {r.totalQty}
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-tight ${badgeClass}`}>
+                    {isVoided ? 'VOIDED' : r.payment}
+                  </span>
+                </td>
+                <td className={`px-4 py-3 text-right font-bold tabular-nums ${isVoided ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                  {Number(r.total).toFixed(2)}
+                </td>
+                <td className={`px-4 py-3 max-w-[200px] truncate ${isVoided ? 'text-gray-300' : 'text-orange-600 text-xs'}`}>
+                  {r.freebies || '-'}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {isVoided ? (
+                    <span className="text-[10px] text-gray-400 uppercase font-bold italic">Voided</span>
+                  ) : (
+                    <button 
+                      onClick={() => handleVoid(r.billNo, r.location)} 
+                      className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded-lg transition-colors group"
+                      title="Void Bill"
+                    >
+                      <Trash2 size={16} className="group-active:scale-90 transition-transform" />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })
+        )}
+      </tbody>
+    </table>
+  </div>
+</div>
     </main>
   );
 }

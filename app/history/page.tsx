@@ -135,6 +135,31 @@ export default function HistoryPage() {
 
   const computedTotals = useMemo(() => reduceTotals(activeRows), [activeRows]);
 
+  // RESTORED: Lineman Summary Calculation
+  const linemanSummary = useMemo(() => {
+    const rowsLm = activeRows.filter(r => (r.payment || '').toLowerCase() === 'lineman');
+    return rowsLm.length ? reduceTotals(rowsLm) : null;
+  }, [activeRows]);
+
+  // RESTORED: Product Sales Breakdown Calculation
+  const { productSummaryNonLineman, productSummaryLineman } = useMemo(() => {
+    const nonL: Record<string, { qty: number; amount: number }> = {};
+    const lm: Record<string, { qty: number; amount: number }> = {};
+    const addItems = (bucket: typeof nonL, items: string) => {
+      const { map } = parseNameQtyList(items);
+      for (const [name, q] of Object.entries(map)) {
+        if (!bucket[name]) bucket[name] = { qty: 0, amount: 0 };
+        bucket[name].qty += q;
+        bucket[name].amount += (priceByName[name] || 0) * q;
+      }
+    };
+    activeRows.forEach(r => {
+      if ((r.payment || '').toLowerCase() === 'lineman') addItems(lm, r.items);
+      else addItems(nonL, r.items);
+    });
+    return { productSummaryNonLineman: nonL, productSummaryLineman: lm };
+  }, [activeRows, priceByName]);
+
   const { csvHref, csvFilename } = useMemo(() => {
     if (!location || !date) return { csvHref: '#', csvFilename: '' };
     return { 
@@ -174,25 +199,83 @@ export default function HistoryPage() {
 
         {/* SUMMARY SECTION */}
         {activeRows.length > 0 && (
-          <div className="rounded-xl border bg-white p-4 mb-6 space-y-4">
-            <div className="font-semibold text-lg border-b pb-2">Sales Summary</div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-               <div><p className="text-xs text-gray-500">Bills</p><p className="font-bold">{computedTotals.count}</p></div>
-               <div><p className="text-xs text-gray-500">Qty Sold</p><p className="font-bold">{computedTotals.soldQty}</p></div>
-               <div><p className="text-xs text-gray-500">Total Sales</p><p className="font-bold text-green-600">{computedTotals.totalAmount.toFixed(2)} THB</p></div>
-               <div><p className="text-xs text-gray-500">Freebies</p><p className="font-bold text-orange-600">{computedTotals.freebiesAmount.toFixed(2)} THB</p></div>
-            </div>
-            
-            {/* Re-added Payment Breakdown */}
-            <div className="pt-2 border-t text-sm text-gray-700">
-                <span className="font-semibold">By Payment: </span>
-                {Object.entries(computedTotals.byPayment).map(([k, v], i) => (
-                    <span key={k}>
-                        {i > 0 && " | "}
-                        <span className="capitalize">{k}</span>: {v.toFixed(2)} THB
-                    </span>
+          <div className="rounded-xl border bg-white p-4 mb-6 space-y-6">
+            <section>
+              <div className="font-semibold text-lg border-b pb-2">Summary</div>
+              <div className="mt-3">
+                Bills: {computedTotals.count} | Qty: {computedTotals.soldQty} | Freebies Qty: {computedTotals.freebiesQty}
+              </div>
+              <div>Total: {computedTotals.totalAmount.toFixed(2)} THB</div>
+              <div>Freebies: {computedTotals.freebiesAmount.toFixed(2)} THB</div>
+              <div className="text-gray-700 text-sm mt-1">
+                By Payment: {Object.entries(computedTotals.byPayment).map(([k, v], i) => (
+                  <span key={k}>{i > 0 && " | "}<span className="capitalize">{k}</span>: {v.toFixed(2)} THB</span>
                 ))}
+              </div>
+            </section>
+
+            {/* RESTORED: Lineman Summary UI */}
+            {linemanSummary && (
+              <div className="p-3 border rounded bg-gray-50">
+                <div className="font-semibold">🚚 Lineman Summary</div>
+                <div className="text-sm">
+                  Bills: {linemanSummary.count} | Qty: {linemanSummary.soldQty} | Freebies Qty: {linemanSummary.freebiesQty}
+                </div>
+                <div className="text-sm font-semibold">Total: {linemanSummary.totalAmount.toFixed(2)} THB</div>
+              </div>
+            )}
+
+            {/* RESTORED: Product Sales (Non-Lineman) Table */}
+            <div>
+              <div className="font-semibold mb-2">🛒 Product Sales (Non-Lineman)</div>
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-100 border-b">
+                    <tr>
+                      <th className="text-left p-2">Product</th>
+                      <th className="text-right p-2">Qty</th>
+                      <th className="text-right p-2">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(productSummaryNonLineman).map(([n, v]) => (
+                      <tr key={n} className="border-t">
+                        <td className="p-2">{n}</td>
+                        <td className="p-2 text-right">{v.qty}</td>
+                        <td className="p-2 text-right">{v.amount.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
+            {/* RESTORED: Product Sales (Lineman) Table */}
+            {Object.keys(productSummaryLineman).length > 0 && (
+              <div>
+                <div className="font-semibold mb-2">📦 Product Sales (Lineman)</div>
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-100 border-b">
+                      <tr>
+                        <th className="text-left p-2">Product</th>
+                        <th className="text-right p-2">Qty</th>
+                        <th className="text-right p-2">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(productSummaryLineman).map(([n, v]) => (
+                        <tr key={n} className="border-t">
+                          <td className="p-2">{n}</td>
+                          <td className="p-2 text-right">{v.qty}</td>
+                          <td className="p-2 text-right">{v.amount.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -211,11 +294,9 @@ export default function HistoryPage() {
                   {rows.map((r, idx) => {
                     const isVoided = r.status === 'VOIDED';
                     const pay = (r.payment || '').toLowerCase();
-                    
-                    // Logic for custom badge colors
-                    let badgeClass = "bg-blue-100 text-blue-700"; // Default
+                    let badgeClass = "bg-blue-100 text-blue-700";
                     if (isVoided) badgeClass = "bg-gray-200 text-gray-600";
-                    else if (pay === 'cash') badgeClass = "bg-orange-100 text-orange-900"; // Brown/Orange theme
+                    else if (pay === 'cash') badgeClass = "bg-orange-100 text-orange-900";
                     
                     return (
                       <tr key={idx} className={`border-b last:border-0 ${isVoided ? 'bg-gray-50 opacity-60' : ''}`}>

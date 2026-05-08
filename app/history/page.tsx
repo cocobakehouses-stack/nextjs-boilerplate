@@ -197,87 +197,129 @@ export default function HistoryPage() {
           </div>
         </div>
 
-        {/* SUMMARY SECTION */}
-        {activeRows.length > 0 && (
-          <div className="rounded-xl border bg-white p-4 mb-6 space-y-6">
-            <section>
-              <div className="font-semibold text-lg border-b pb-2">Summary</div>
-              <div className="mt-3">
-                Bills: {computedTotals.count} | Qty: {computedTotals.soldQty} | Freebies Qty: {computedTotals.freebiesQty}
-              </div>
-              <div>Total: {computedTotals.totalAmount.toFixed(2)} THB</div>
-              <div>Freebies: {computedTotals.freebiesAmount.toFixed(2)} THB</div>
-              <div className="text-gray-700 text-sm mt-1">
-                By Payment: {Object.entries(computedTotals.byPayment).map(([k, v], i) => (
-                  <span key={k}>{i > 0 && " | "}<span className="capitalize">{k}</span>: {v.toFixed(2)} THB</span>
-                ))}
-              </div>
-            </section>
+       {/* SUMMARY SECTION */}
+{activeRows.length > 0 && (
+  <div className="space-y-6 mb-6">
+    {/* Main Metrics Grid */}
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="bg-white border-l-4 border-blue-500 rounded-xl shadow-sm p-4">
+        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Bills</p>
+        <p className="text-2xl font-bold text-gray-900">{computedTotals.count}</p>
+      </div>
+      
+      <div className="bg-white border-l-4 border-indigo-500 rounded-xl shadow-sm p-4">
+        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Qty Sold</p>
+        <p className="text-2xl font-bold text-gray-900">
+          {computedTotals.soldQty} <span className="text-sm font-normal text-gray-400">pcs</span>
+        </p>
+      </div>
 
-            {/* RESTORED: Lineman Summary UI */}
-            {linemanSummary && (
-              <div className="p-3 border rounded bg-gray-50">
-                <div className="font-semibold">🚚 Lineman Summary</div>
-                <div className="text-sm">
-                  Bills: {linemanSummary.count} | Qty: {linemanSummary.soldQty} | Freebies Qty: {linemanSummary.freebiesQty}
-                </div>
-                <div className="text-sm font-semibold">Total: {linemanSummary.totalAmount.toFixed(2)} THB</div>
-              </div>
-            )}
+      <div className="bg-white border-l-4 border-green-500 rounded-xl shadow-sm p-4">
+        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Revenue</p>
+        <p className="text-2xl font-bold text-green-600">{computedTotals.totalAmount.toLocaleString()} <span className="text-sm">฿</span></p>
+      </div>
 
-            {/* RESTORED: Product Sales (Non-Lineman) Table */}
-            <div>
-              <div className="font-semibold mb-2">🛒 Product Sales (Non-Lineman)</div>
-              <div className="overflow-x-auto border rounded-lg">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-100 border-b">
-                    <tr>
-                      <th className="text-left p-2">Product</th>
-                      <th className="text-right p-2">Qty</th>
-                      <th className="text-right p-2">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(productSummaryNonLineman).map(([n, v]) => (
-                      <tr key={n} className="border-t">
-                        <td className="p-2">{n}</td>
-                        <td className="p-2 text-right">{v.qty}</td>
-                        <td className="p-2 text-right">{v.amount.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+      <div className="bg-white border-l-4 border-orange-400 rounded-xl shadow-sm p-4">
+        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Freebies Given</p>
+        <p className="text-2xl font-bold text-orange-600">{computedTotals.freebiesQty} <span className="text-sm font-normal text-gray-400">items</span></p>
+      </div>
+    </div>
 
-            {/* RESTORED: Product Sales (Lineman) Table */}
-            {Object.keys(productSummaryLineman).length > 0 && (
-              <div>
-                <div className="font-semibold mb-2">📦 Product Sales (Lineman)</div>
-                <div className="overflow-x-auto border rounded-lg">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-gray-100 border-b">
-                      <tr>
-                        <th className="text-left p-2">Product</th>
-                        <th className="text-right p-2">Qty</th>
-                        <th className="text-right p-2">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(productSummaryLineman).map(([n, v]) => (
-                        <tr key={n} className="border-t">
-                          <td className="p-2">{n}</td>
-                          <td className="p-2 text-right">{v.qty}</td>
-                          <td className="p-2 text-right">{v.amount.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+    {/* Payment & Lineman Details */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Payment Breakdown Card */}
+      <div className="bg-white rounded-xl border p-4 shadow-sm">
+        <div className="font-semibold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
+          💰 Payment Breakdown
+        </div>
+        <div className="space-y-3">
+          {Object.entries(computedTotals.byPayment).map(([k, v]) => {
+            const isCash = k === 'cash';
+            return (
+              <div key={k} className="flex justify-between items-center">
+                <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${isCash ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'}`}>
+                  {k}
+                </span>
+                <span className="font-mono font-semibold">{v.toLocaleString(undefined, {minimumFractionDigits: 2})} ฿</span>
               </div>
-            )}
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Lineman Box */}
+      {linemanSummary && (
+        <div className="bg-emerald-50 rounded-xl border border-emerald-100 p-4 shadow-sm">
+          <div className="font-semibold text-emerald-800 flex items-center gap-2 mb-2">
+            🚚 Lineman Summary
           </div>
-        )}
+          <div className="grid grid-cols-2 gap-2 text-sm text-emerald-700">
+            <div>Bills: <span className="font-bold">{linemanSummary.count}</span></div>
+            <div>Qty: <span className="font-bold">{linemanSummary.soldQty}</span></div>
+            <div className="col-span-2 mt-1 pt-1 border-t border-emerald-200">
+              Total: <span className="text-lg font-bold">{linemanSummary.totalAmount.toLocaleString()} ฿</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* Product Tables with better styling */}
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Non-Lineman Table */}
+      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className="bg-gray-50 px-4 py-3 border-b font-semibold flex items-center gap-2">
+          🛒 Product Sales (Walk-in)
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-left text-gray-500 uppercase text-[10px] bg-gray-50/50">
+            <tr>
+              <th className="px-4 py-2">Item</th>
+              <th className="px-4 py-2 text-right">Qty</th>
+              <th className="px-4 py-2 text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {Object.entries(productSummaryNonLineman).map(([n, v]) => (
+              <tr key={n} className="hover:bg-gray-50">
+                <td className="px-4 py-2 font-medium">{n}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{v.qty}</td>
+                <td className="px-4 py-2 text-right tabular-nums font-semibold">{v.amount.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Lineman Table */}
+      {Object.keys(productSummaryLineman).length > 0 && (
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="bg-emerald-50 px-4 py-3 border-b font-semibold text-emerald-800 flex items-center gap-2">
+            📦 Product Sales (Lineman)
+          </div>
+          <table className="w-full text-sm">
+            <thead className="text-left text-emerald-600 uppercase text-[10px] bg-emerald-50/50">
+              <tr>
+                <th className="px-4 py-2">Item</th>
+                <th className="px-4 py-2 text-right">Qty</th>
+                <th className="px-4 py-2 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-emerald-100">
+              {Object.entries(productSummaryLineman).map(([n, v]) => (
+                <tr key={n} className="hover:bg-emerald-50/30">
+                  <td className="px-4 py-2 font-medium">{n}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{v.qty}</td>
+                  <td className="px-4 py-2 text-right tabular-nums font-semibold">{v.amount.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  </div>
+)}
 
         {/* TABLE SECTION */}
         <div className="rounded-xl border bg-white p-4">

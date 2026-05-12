@@ -1,20 +1,16 @@
-// app/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link'; // Better than <a>
 import HeaderMenu from './components/HeaderMenu';
 import LocationPicker from './components/LocationPicker';
-import { Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, ChevronDown, ChevronUp, History, BarChart3, Package, ArrowRight, Store } from 'lucide-react';
 
 export default function HomePage() {
   const router = useRouter();
   const [loc, setLoc] = useState<string | null>(null);
-
-  // สำหรับบังคับรีโหลด LocationPicker หลังเพิ่มสาขา (เปลี่ยน key จะรีเฟรชการ fetch)
   const [locPickerVersion, setLocPickerVersion] = useState(0);
-
-  // พาเนล “เพิ่มสาขา”
   const [manageOpen, setManageOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newId, setNewId] = useState('');
@@ -43,12 +39,12 @@ export default function HomePage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'บันทึกไม่สำเร็จ');
 
-      // เคลียร์ฟอร์ม + รีโหลด LocationPicker + เซ็ตเลือกสาขาใหม่
       setNewId('');
       setNewLabel('');
       setLoc(id);
-      try { localStorage.setItem('pos_location', id); } catch {}
-      setLocPickerVersion(v => v + 1); // บังคับให้ LocationPicker รีเฟรชข้อมูล
+      localStorage.setItem('pos_location', id);
+      setLocPickerVersion(v => v + 1);
+      setManageOpen(false); // Close panel after success
     } catch (e: any) {
       alert(e?.message || 'บันทึกไม่สำเร็จ');
     } finally {
@@ -57,102 +53,99 @@ export default function HomePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#fffff0] p-4 sm:p-6 lg:p-8">
-      <HeaderMenu />
-      <div className="max-w-3xl">
-        <h1 className="text-3xl font-bold mb-4">Coco Bakehouse</h1>
+    <main className="min-h-screen bg-[#fffff0] p-4 sm:p-8">
+      <div className="max-w-4xl mx-auto space-y-8">
+        <HeaderMenu />
+        
+        <header className="space-y-2">
+          <h1 className="text-5xl font-black italic tracking-tighter text-black uppercase">
+            Coco Bakehouse
+          </h1>
+          <p className="text-gray-400 font-bold text-xs uppercase tracking-widest">Store Management System</p>
+        </header>
 
-        {/* เลือกสถานที่ */}
-        <div className="rounded-xl border bg-white p-4 mb-4 space-y-3">
-          <div className="font-semibold">เลือกสถานที่</div>
+        {/* LOCATION SELECTOR & POS ACTION */}
+        <section className="bg-white rounded-[2rem] border-4 border-black p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] space-y-6">
+          <div className="flex items-center gap-2">
+            <Store className="text-[#ac0000]" size={24} />
+            <h2 className="text-xl font-black uppercase">Select Branch</h2>
+          </div>
+
           <LocationPicker
             key={locPickerVersion}
             value={loc}
             onChange={(id) => {
               setLoc(id);
-              try { localStorage.setItem('pos_location', id); } catch {}
+              localStorage.setItem('pos_location', id);
             }}
           />
 
-          <div className="flex gap-2">
-            <button
-              disabled={!loc}
-              onClick={() => router.push('/pos')}
-              className="px-4 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] disabled:opacity-40"
-            >
-              ไปหน้า POS
-            </button>
-          </div>
-        </div>
-
-        {/* พาเนลเพิ่มสาขา (ย่อ/ขยายได้) */}
-        <div className="rounded-xl border bg-white mb-6">
           <button
-            onClick={() => setManageOpen(s => !s)}
-            className="w-full flex items-center justify-between px-4 py-3"
-            aria-expanded={manageOpen}
+            disabled={!loc}
+            onClick={() => router.push('/pos')}
+            className="w-full py-5 rounded-2xl bg-[#ac0000] text-white text-xl font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-black transition-all disabled:opacity-20 active:scale-95"
           >
-            <div className="font-semibold flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              เพิ่ม/แก้ไขสาขาอย่างเร็ว
-            </div>
-            {manageOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            Enter POS <ArrowRight />
+          </button>
+        </section>
+
+        {/* QUICK NAVIGATION */}
+        <section className="grid sm:grid-cols-3 gap-4">
+          {[
+            { label: 'History', icon: <History />, href: '/history', desc: 'End-of-Day Logs' },
+            { label: 'Reports', icon: <BarChart3 />, href: '/reports', desc: 'Analytics' },
+            { label: 'Inventory', icon: <Package />, href: '/products', desc: 'Manage Menu' },
+          ].map((item) => (
+            <Link key={item.label} href={item.href} 
+              className="bg-white border-2 border-black p-5 rounded-2xl hover:bg-black hover:text-white transition-all group"
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-[#ac0000] group-hover:text-white">{item.icon}</span>
+                <span className="font-black uppercase text-sm">{item.label}</span>
+              </div>
+              <p className="text-[10px] font-bold opacity-50 uppercase tracking-tight">{item.desc}</p>
+            </Link>
+          ))}
+        </section>
+
+        {/* ADMIN PANEL: BRANCH MANAGEMENT */}
+        <section className="bg-white border-2 border-black rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setManageOpen(!manageOpen)}
+            className="w-full flex items-center justify-between px-6 py-4 bg-gray-50 hover:bg-gray-100 transition-colors"
+          >
+            <span className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
+              <Plus size={16} /> Add / Update Branch
+            </span>
+            {manageOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
 
           {manageOpen && (
-            <div className="px-4 pb-4 space-y-3">
-              <div className="grid sm:grid-cols-3 gap-2">
+            <div className="p-6 space-y-4 border-t-2 border-black animate-in slide-in-from-top-2">
+              <div className="grid sm:grid-cols-3 gap-3">
                 <input
-                  placeholder="รหัสสาขา เช่น FLAGSHIP"
+                  placeholder="ID (e.g., BK-01)"
                   value={newId}
                   onChange={(e) => setNewId(e.target.value.toUpperCase())}
-                  className="rounded border px-3 py-2"
+                  className="rounded-xl border-2 border-gray-100 px-4 py-3 font-bold text-sm outline-none focus:border-black"
                 />
                 <input
-                  placeholder="ชื่อที่แสดง เช่น Coco Flagship"
+                  placeholder="Display Name"
                   value={newLabel}
                   onChange={(e) => setNewLabel(e.target.value)}
-                  className="rounded border px-3 py-2 sm:col-span-2"
+                  className="rounded-xl border-2 border-gray-100 px-4 py-3 font-bold text-sm outline-none focus:border-black sm:col-span-2"
                 />
               </div>
-              <div className="text-xs text-gray-500">
-                * ID ใช้อักษร A–Z, ตัวเลข, _ หรือ - (ระบบจะอัปเดต/สร้างใหม่ให้อัตโนมัติ)
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={addLocation}
-                  disabled={adding}
-                  className="px-3 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-contrast)] inline-flex items-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  {adding ? 'กำลังบันทึก…' : 'เพิ่ม/อัปเดตสาขา'}
-                </button>
-                <button
-                  onClick={() => { setNewId(''); setNewLabel(''); }}
-                  className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
-                >
-                  ล้างฟอร์ม
-                </button>
-              </div>
+              <button
+                onClick={addLocation}
+                disabled={adding}
+                className="px-6 py-3 rounded-xl bg-black text-white font-black uppercase text-xs tracking-widest hover:bg-[#ac0000] transition-colors disabled:opacity-50"
+              >
+                {adding ? 'Saving...' : 'Sync Branch'}
+              </button>
             </div>
           )}
-        </div>
-
-        {/* ลิงก์ไปส่วนอื่น */}
-        <div className="grid sm:grid-cols-2 gap-3">
-          <a href="/history" className="rounded-xl border bg-white p-4 hover:bg-gray-50">
-            <div className="font-semibold">History</div>
-            <div className="text-sm text-gray-600">ดู End-of-Day / ดาวน์โหลด CSV</div>
-          </a>
-          <a href="/reports" className="rounded-xl border bg-white p-4 hover:bg-gray-50">
-            <div className="font-semibold">Reports</div>
-            <div className="text-sm text-gray-600">สรุปรายวัน/สัปดาห์/เดือน</div>
-          </a>
-          <a href="/products" className="rounded-xl border bg-white p-4 hover:bg-gray-50">
-            <div className="font-semibold">Products</div>
-            <div className="text-sm text-gray-600">จัดการรายการสินค้า (Toggle Active)</div>
-          </a>
-        </div>
+        </section>
       </div>
     </main>
   );

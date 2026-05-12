@@ -5,29 +5,35 @@ import { getAuth } from '../../../lib/sheets';
 export async function POST(req: Request) {
   try {
     const { billNo, location } = await req.json();
+    if (!billNo || !location) return NextResponse.json({ error: 'Missing billNo or location' }, { status: 400 });
+
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // 1. Find the row index by searching for the BillNo in the specific tab
+    // 1. Fetch Columns A through C to find the BillNo (which is in C)
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${location}!A:C`, // Adjust column range to where your BillNo is
+      range: `${location}!A:C`, 
     });
 
     const rows = response.data.values || [];
-    // Assuming BillNo is in the first column (index 0)
-    const rowIndex = rows.findIndex(row => row[0] === String(billNo));
+    
+    // Search Column C (index 2) for the matching BillNo string
+    const rowIndex = rows.findIndex(row => String(row[2]).trim() === String(billNo).trim());
 
     if (rowIndex === -1) {
-      return NextResponse.json({ error: 'Bill not found' }, { status: 404 });
+      return NextResponse.json({ error: `Bill #${billNo} not found in ${location}` }, { status: 404 });
     }
 
-    // 2. Delete the row
-    // Note: Google Sheets API uses 0-based index for gridId but row index is specific
+    // 2. Get the Sheet ID for the target location
     const sheetInfo = await sheets.spreadsheets.get({ spreadsheetId });
-    const sheetId = sheetInfo.data.sheets?.find(s => s.properties?.title === location)?.properties?.sheetId;
+    const sheet = sheetInfo.data.sheets?.find(s => s.properties?.title === location);
+    
+    if (!sheet) return NextResponse.json({ error: 'Location sheet not found' }, { status: 404 });
+    const sheetId = sheet.properties?.sheetId;
 
+    // 3. Execute the deletion
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
@@ -37,7 +43,7 @@ export async function POST(req: Request) {
               range: {
                 sheetId: sheetId,
                 dimension: 'ROWS',
-                startIndex: rowIndex,
+                startIndex: rowIndex, 
                 endIndex: rowIndex + 1,
               },
             },
@@ -48,6 +54,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
+    console.error("Void Error:", e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }

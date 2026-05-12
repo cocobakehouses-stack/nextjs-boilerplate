@@ -46,6 +46,8 @@ async function ensureProductsSheetExists(sheets: any, spreadsheetId: string) {
 }
 
 /** ---------- GET: list products ---------- */
+// app/api/products/route.ts -> Update only the GET function part
+
 export async function GET(req: Request) {
   try {
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
@@ -55,40 +57,34 @@ export async function GET(req: Request) {
     await ensureProductsSheetExists(sheets, spreadsheetId);
 
     const { searchParams } = new URL(req.url);
-    // ค่าเริ่มต้น = true (ให้หน้า POS เดิมยังได้เฉพาะ active)
     const p = (searchParams.get('activeOnly') ?? '').toLowerCase();
     const activeOnly = p ? !['0', 'false', 'no', 'off'].includes(p) : true;
 
+    // Fetch A to E (ID, Name, Price, Category, Active)
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${PRODUCTS_TAB}!A:D`,
+      range: `${PRODUCTS_TAB}!A:E`,
     });
 
-    const rows: string[][] = (res.data.values || []).slice(1);
-    const parsed: (Product | null)[] = rows.map((r) => {
+    const rows = (res.data.values || []).slice(1);
+    const products = rows.map((r) => {
       const id = parseNum(r?.[0]);
       const name = (r?.[1] || '').toString().trim();
       const price = parseNum(r?.[2]);
-      const activeStr = (r?.[3] || '').toString().trim().toLowerCase();
-      const active =
-        activeStr === ''
-          ? true
-          : ['true', '1', 'yes', 'y', 'on'].includes(activeStr);
-      if (!Number.isFinite(id) || !name || !Number.isFinite(price)) return null;
-      return { id, name, price, active };
-    });
+      const category = (r?.[3] || '').toString().trim();
+      const activeStr = (r?.[4] || '').toString().trim().toLowerCase();
+      
+      const active = activeStr === '' ? true : ['true', '1', 'yes', 'y', 'on'].includes(activeStr);
 
-    let products = (parsed.filter(Boolean) as Product[]).sort(
-      (a, b) => b.price - a.price
-    );
-    if (activeOnly) products = products.filter((p) => p.active !== false);
+      if (!Number.isFinite(id) || !name) return null;
+      return { id, name, price, category, active };
+    }).filter(Boolean);
 
-    return NextResponse.json(
-      { products },
-      { headers: { 'Cache-Control': 'no-store' } }
-    );
+    let filtered = products as any[];
+    if (activeOnly) filtered = filtered.filter((p) => p.active !== false);
+
+    return NextResponse.json({ products: filtered.sort((a,b) => a.id - b.id) });
   } catch (e: any) {
-    console.error('GET /api/products error', e?.message || e);
     return NextResponse.json({ error: 'failed' }, { status: 500 });
   }
 }

@@ -62,33 +62,33 @@ export default function ProductsManagerPage() {
     setEditingId(null);
   };
 
-  async function handleSaveEdit(id: number) {
-    if (!editName || !editPrice) return alert("Please fill in Name and Price");
-    setIsSubmitting(true);
-    try {
-      const res = await fetch(`/api/products/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editName,
-          price: Number(editPrice),
-          category: editCategory,
-          active: editActive,
-        }),
-      });
+async function handleSaveEdit(id: number) {
+  if (!editName || !editPrice) return alert("Please fill Name and Price");
+  setIsSubmitting(true);
+  try {
+    const res = await fetch(`/api/products/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: editName,
+        price: Number(editPrice),
+        category: editCategory,
+        active: editActive,
+      }),
+    });
 
-      if (res.ok) {
-        setEditingId(null);
-        await loadProducts();
-      } else {
-        alert("Failed to save changes");
-      }
-    } catch (e) {
-      alert("Error updating product");
-    } finally {
-      setIsSubmitting(false);
+    if (res.ok) {
+      setEditingId(null);
+      await loadProducts();
+    } else {
+      alert("Failed to save changes");
     }
+  } catch (e) {
+    alert("Error updating product");
+  } finally {
+    setIsSubmitting(false);
   }
+}
 
   async function handleAddProduct() {
     if (!newName || !newPrice) return alert("Please fill in Name and Price");
@@ -119,18 +119,16 @@ export default function ProductsManagerPage() {
     }
   }
 
-  async function toggleStatus(p: Product) {
-    try {
-      await fetch(`/api/products/${p.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...p, active: !p.active }),
-      });
-      await loadProducts();
-    } catch (e) {
-      alert("Failed to toggle status");
-    }
-  }
+async function toggleStatus(p: Product) {
+  try {
+    const res = await fetch(`/api/products/${p.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !p.active }),
+    });
+    if (res.ok) await loadProducts();
+  } catch (e) {
+    alert("Failed to toggle status");
 
   /* ========== Render ========== */
   return (

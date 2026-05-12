@@ -124,7 +124,6 @@ const computedTotals = useMemo(() => reduceTotals(activeRows), [activeRows]);
     const nonL: Record<string, { qty: number; amount: number }> = {};
     const lm: Record<string, { qty: number; amount: number }> = {};
     const free: Record<string, { qty: number; amount: number }> = {};
-    }, [activeRows]);
 
     const addItems = (bucket: any, itemsStr: string) => {
       const { map } = parseNameQtyList(itemsStr);
@@ -138,11 +137,17 @@ const computedTotals = useMemo(() => reduceTotals(activeRows), [activeRows]);
     activeRows.forEach(r => {
       const isLM = (r.payment || '').toLowerCase() === 'lineman';
       addItems(isLM ? lm : nonL, r.items);
-      if (r.freebies) addItems(free, r.freebies);
+      if (r.freebies) {
+        addItems(free, r.freebies);
+      }
     });
 
-    return { productSummaryNonLineman: nonL, productSummaryLineman: lm, freebieSummary: free };
-  }, [activeRows, priceByName]);
+    return { 
+      productSummaryNonLineman: nonL, 
+      productSummaryLineman: lm, 
+      freebieSummary: free 
+    };
+  }, [activeRows, priceByName]); // Line 145
 
   // 5. Void Logic
   async function handleVoid(billNo: string, rowLoc: string | undefined) {

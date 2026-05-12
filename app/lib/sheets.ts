@@ -126,22 +126,15 @@ export async function ensureSheetExistsIdempotent(sheets: any, spreadsheetId: st
 /** ---------- Data Fetching ---------- */
 export async function listLocationIds(sheets: any, spreadsheetId: string): Promise<string[]> {
   try {
-    // Strategy: Fetch from the 'Locations' tab directly for the most accurate list
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: 'Locations!A:A',
     });
     const rows = res.data.values || [];
-    return rows
-      .slice(1) // Skip header
-      .map(r => String(r[0] || '').trim().toUpperCase())
-      .filter(id => id.length > 0);
+    return rows.slice(1).map(r => String(r[0] || '').trim().toUpperCase()).filter(id => id.length > 0);
   } catch (e) {
-    // Fallback: If 'Locations' tab doesn't exist, get all tabs except system ones
     const res = await sheets.spreadsheets.get({ spreadsheetId });
-    return (res.data.sheets || [])
-      .map((s: any) => s.properties.title)
-      .filter((t: string) => !['Products', 'Locations', 'Stocks', 'Summary'].includes(t));
+    return (res.data.sheets || []).map((s: any) => s.properties.title).filter((t: string) => !['Products', 'Locations', 'Stocks', 'Summary'].includes(t));
   }
 }
 

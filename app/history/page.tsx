@@ -1,4 +1,3 @@
-// app/history/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -135,16 +134,16 @@ export default function HistoryPage() {
 
   const computedTotals = useMemo(() => reduceTotals(activeRows), [activeRows]);
 
-  // RESTORED: Lineman Summary Calculation
   const linemanSummary = useMemo(() => {
     const rowsLm = activeRows.filter(r => (r.payment || '').toLowerCase() === 'lineman');
     return rowsLm.length ? reduceTotals(rowsLm) : null;
   }, [activeRows]);
 
-  // RESTORED: Product Sales Breakdown Calculation
-  const { productSummaryNonLineman, productSummaryLineman } = useMemo(() => {
+  const { productSummaryNonLineman, productSummaryLineman, freebieSummary } = useMemo(() => {
     const nonL: Record<string, { qty: number; amount: number }> = {};
     const lm: Record<string, { qty: number; amount: number }> = {};
+    const free: Record<string, { qty: number; amount: number }> = {};
+
     const addItems = (bucket: typeof nonL, items: string) => {
       const { map } = parseNameQtyList(items);
       for (const [name, q] of Object.entries(map)) {
@@ -153,11 +152,22 @@ export default function HistoryPage() {
         bucket[name].amount += (priceByName[name] || 0) * q;
       }
     };
+
     activeRows.forEach(r => {
       if ((r.payment || '').toLowerCase() === 'lineman') addItems(lm, r.items);
       else addItems(nonL, r.items);
+      
+      if (r.freebies) {
+        const { map } = parseNameQtyList(r.freebies);
+        for (const [name, q] of Object.entries(map)) {
+          if (!free[name]) free[name] = { qty: 0, amount: 0 };
+          free[name].qty += q;
+          free[name].amount += (priceByName[name] || 0) * q;
+        }
+      }
     });
-    return { productSummaryNonLineman: nonL, productSummaryLineman: lm };
+
+    return { productSummaryNonLineman: nonL, productSummaryLineman: lm, freebieSummary: free };
   }, [activeRows, priceByName]);
 
   const { csvHref, csvFilename } = useMemo(() => {
@@ -169,7 +179,7 @@ export default function HistoryPage() {
   }, [location, date]);
 
   return (
-    <main className="min-h-screen bg-[var(--surface-muted)]">
+    <main className="min-h-screen bg-[var(--surface-muted)] pb-10">
       <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
         <div className="max-w-6xl mx-auto px-4 py-2"><HeaderMenu /></div>
       </div>
@@ -197,213 +207,161 @@ export default function HistoryPage() {
           </div>
         </div>
 
-       {/* SUMMARY SECTION */}
-{activeRows.length > 0 && (
-  <div className="space-y-6 mb-6">
-    {/* Main Metrics Grid */}
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <div className="bg-white border-l-4 border-blue-500 rounded-xl shadow-sm p-4">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Bills</p>
-        <p className="text-2xl font-bold text-gray-900">{computedTotals.count}</p>
-      </div>
-      
-      <div className="bg-white border-l-4 border-indigo-500 rounded-xl shadow-sm p-4">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Qty Sold</p>
-        <p className="text-2xl font-bold text-gray-900">
-          {computedTotals.soldQty} <span className="text-sm font-normal text-gray-400">pcs</span>
-        </p>
-      </div>
-
-      <div className="bg-white border-l-4 border-green-500 rounded-xl shadow-sm p-4">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Revenue</p>
-        <p className="text-2xl font-bold text-green-600">{computedTotals.totalAmount.toLocaleString()} <span className="text-sm">฿</span></p>
-      </div>
-
-      <div className="bg-white border-l-4 border-orange-400 rounded-xl shadow-sm p-4">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Freebies Given</p>
-        <p className="text-2xl font-bold text-orange-600">{computedTotals.freebiesQty} <span className="text-sm font-normal text-gray-400">items</span></p>
-      </div>
-    </div>
-
-    {/* Payment & Lineman Details */}
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {/* Payment Breakdown Card */}
-      <div className="bg-white rounded-xl border p-4 shadow-sm">
-        <div className="font-semibold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
-          💰 Payment Breakdown
-        </div>
-        <div className="space-y-3">
-          {Object.entries(computedTotals.byPayment).map(([k, v]) => {
-            const isCash = k === 'cash';
-            return (
-              <div key={k} className="flex justify-between items-center">
-                <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${isCash ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'}`}>
-                  {k}
-                </span>
-                <span className="font-mono font-semibold">{v.toLocaleString(undefined, {minimumFractionDigits: 2})} ฿</span>
+        {/* SUMMARY SECTION */}
+        {activeRows.length > 0 && (
+          <div className="space-y-6 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white border-l-4 border-blue-500 rounded-xl shadow-sm p-4 text-center">
+                <p className="text-xs font-medium text-gray-500 uppercase">Total Bills</p>
+                <p className="text-2xl font-bold text-gray-900">{computedTotals.count}</p>
               </div>
-            );
-          })}
-        </div>
-      </div>
+              <div className="bg-white border-l-4 border-indigo-500 rounded-xl shadow-sm p-4 text-center">
+                <p className="text-xs font-medium text-gray-500 uppercase">Qty Sold</p>
+                <p className="text-2xl font-bold text-gray-900">{computedTotals.soldQty} pcs</p>
+              </div>
+              <div className="bg-white border-l-4 border-green-500 rounded-xl shadow-sm p-4 text-center">
+                <p className="text-xs font-medium text-gray-500 uppercase">Total Revenue</p>
+                <p className="text-2xl font-bold text-green-600">{computedTotals.totalAmount.toLocaleString()} ฿</p>
+              </div>
+              <div className="bg-white border-l-4 border-orange-400 rounded-xl shadow-sm p-4 text-center">
+                <p className="text-xs font-medium text-gray-500 uppercase">Freebies Given</p>
+                <p className="text-2xl font-bold text-orange-600">{computedTotals.freebiesQty} items</p>
+              </div>
+            </div>
 
-      {/* Lineman Box */}
-      {linemanSummary && (
-        <div className="bg-emerald-50 rounded-xl border border-emerald-100 p-4 shadow-sm">
-          <div className="font-semibold text-emerald-800 flex items-center gap-2 mb-2">
-            🚚 Lineman Summary
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-sm text-emerald-700">
-            <div>Bills: <span className="font-bold">{linemanSummary.count}</span></div>
-            <div>Qty: <span className="font-bold">{linemanSummary.soldQty}</span></div>
-            <div className="col-span-2 mt-1 pt-1 border-t border-emerald-200">
-              Total: <span className="text-lg font-bold">{linemanSummary.totalAmount.toLocaleString()} ฿</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border p-4 shadow-sm">
+                <div className="font-semibold text-gray-700 border-b pb-2 mb-3">💰 Payment Breakdown</div>
+                <div className="space-y-3">
+                  {Object.entries(computedTotals.byPayment).map(([k, v]) => (
+                    <div key={k} className="flex justify-between items-center">
+                      <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${k === 'cash' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'}`}>{k}</span>
+                      <span className="font-mono font-semibold">{v.toLocaleString(undefined, {minimumFractionDigits: 2})} ฿</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {linemanSummary && (
+                <div className="bg-emerald-50 rounded-xl border border-emerald-100 p-4 shadow-sm">
+                  <div className="font-semibold text-emerald-800 flex items-center gap-2 mb-2">🚚 Lineman Summary</div>
+                  <div className="grid grid-cols-2 gap-2 text-sm text-emerald-700">
+                    <div>Bills: <span className="font-bold">{linemanSummary.count}</span></div>
+                    <div>Qty: <span className="font-bold">{linemanSummary.soldQty}</span></div>
+                    <div className="col-span-2 mt-1 pt-1 border-t border-emerald-200">Total: <span className="text-lg font-bold">{linemanSummary.totalAmount.toLocaleString()} ฿</span></div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* FREEBIES BREAKDOWN TABLE */}
+            {Object.keys(freebieSummary).length > 0 && (
+              <div className="bg-white rounded-xl border shadow-sm overflow-hidden border-orange-200">
+                <div className="bg-orange-50 px-4 py-3 border-b border-orange-100 font-semibold text-orange-800 flex items-center gap-2">🎁 Freebies Breakdown (Marketing)</div>
+                <table className="w-full text-sm">
+                  <thead className="text-left text-orange-600 uppercase text-[10px] bg-orange-50/50">
+                    <tr><th className="px-4 py-2">Product Name</th><th className="px-4 py-2 text-right">Qty Given</th><th className="px-4 py-2 text-right">Value (Cost)</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-orange-50">
+                    {Object.entries(freebieSummary).map(([n, v]) => (
+                      <tr key={n} className="hover:bg-orange-50/30">
+                        <td className="px-4 py-2 font-medium text-gray-700">{n}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-orange-700 font-bold">{v.qty}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-400">{v.amount.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                <div className="bg-gray-50 px-4 py-3 border-b font-semibold flex items-center gap-2">🛒 Walk-in Sales</div>
+                <table className="w-full text-sm">
+                  <thead className="text-left text-gray-500 uppercase text-[10px] bg-gray-50/50">
+                    <tr><th className="px-4 py-2">Item</th><th className="px-4 py-2 text-right">Qty</th><th className="px-4 py-2 text-right">Amount</th></tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {Object.entries(productSummaryNonLineman).map(([n, v]) => (
+                      <tr key={n} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 font-medium">{n}</td>
+                        <td className="px-4 py-2 text-right">{v.qty}</td>
+                        <td className="px-4 py-2 text-right font-semibold">{v.amount.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {Object.keys(productSummaryLineman).length > 0 && (
+                <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                  <div className="bg-emerald-50 px-4 py-3 border-b font-semibold text-emerald-800 flex items-center gap-2">📦 Lineman Sales</div>
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-emerald-600 uppercase text-[10px] bg-emerald-50/50">
+                      <tr><th className="px-4 py-2">Item</th><th className="px-4 py-2 text-right">Qty</th><th className="px-4 py-2 text-right">Amount</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-emerald-100">
+                      {Object.entries(productSummaryLineman).map(([n, v]) => (
+                        <tr key={n} className="hover:bg-emerald-50/30">
+                          <td className="px-4 py-2 font-medium">{n}</td>
+                          <td className="px-4 py-2 text-right">{v.qty}</td>
+                          <td className="px-4 py-2 text-right font-semibold">{v.amount.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
-    </div>
-
-    {/* Product Tables with better styling */}
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Non-Lineman Table */}
-      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="bg-gray-50 px-4 py-3 border-b font-semibold flex items-center gap-2">
-          🛒 Product Sales (Walk-in)
-        </div>
-        <table className="w-full text-sm">
-          <thead className="text-left text-gray-500 uppercase text-[10px] bg-gray-50/50">
-            <tr>
-              <th className="px-4 py-2">Item</th>
-              <th className="px-4 py-2 text-right">Qty</th>
-              <th className="px-4 py-2 text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {Object.entries(productSummaryNonLineman).map(([n, v]) => (
-              <tr key={n} className="hover:bg-gray-50">
-                <td className="px-4 py-2 font-medium">{n}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{v.qty}</td>
-                <td className="px-4 py-2 text-right tabular-nums font-semibold">{v.amount.toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Lineman Table */}
-      {Object.keys(productSummaryLineman).length > 0 && (
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="bg-emerald-50 px-4 py-3 border-b font-semibold text-emerald-800 flex items-center gap-2">
-            📦 Product Sales (Lineman)
-          </div>
-          <table className="w-full text-sm">
-            <thead className="text-left text-emerald-600 uppercase text-[10px] bg-emerald-50/50">
-              <tr>
-                <th className="px-4 py-2">Item</th>
-                <th className="px-4 py-2 text-right">Qty</th>
-                <th className="px-4 py-2 text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-emerald-100">
-              {Object.entries(productSummaryLineman).map(([n, v]) => (
-                <tr key={n} className="hover:bg-emerald-50/30">
-                  <td className="px-4 py-2 font-medium">{n}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{v.qty}</td>
-                  <td className="px-4 py-2 text-right tabular-nums font-semibold">{v.amount.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  </div>
-)}
-
-  {/* TABLE SECTION */}
-<div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-  <div className="overflow-x-auto">
-    <table className="min-w-full text-sm">
-      <thead className="bg-gray-50 border-b">
-        <tr className="text-left text-gray-500 uppercase text-[10px] tracking-wider">
-          <th className="px-4 py-3">Time</th>
-          <th className="px-4 py-3">Bill</th>
-          <th className="px-4 py-3">Items</th>
-          <th className="px-4 py-3 text-center">Qty</th>
-          <th className="px-4 py-3">Payment</th>
-          <th className="px-4 py-3 text-right">Total</th>
-          <th className="px-4 py-3">Freebies</th>
-          <th className="px-4 py-3 text-center">Action</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-gray-100">
-        {rows.length === 0 ? (
-          <tr>
-            <td colSpan={8} className="px-4 py-10 text-center text-gray-500">
-              {loading ? 'Loading history...' : 'No records found for this date.'}
-            </td>
-          </tr>
-        ) : (
-          rows.map((r, idx) => {
-            const isVoided = r.status === 'VOIDED';
-            const pay = (r.payment || '').toLowerCase();
-            
-            // Badge Colors
-            let badgeClass = "bg-blue-100 text-blue-700"; // Default (PromptPay/Lineman)
-            if (isVoided) badgeClass = "bg-gray-200 text-gray-500";
-            else if (pay === 'cash') badgeClass = "bg-orange-100 text-orange-900";
-            else if (pay === 'lineman') badgeClass = "bg-emerald-100 text-emerald-700";
-
-            return (
-              <tr 
-                key={idx} 
-                className={`transition-colors ${isVoided ? 'bg-gray-50/80' : 'hover:bg-gray-50/50'}`}
-              >
-                <td className={`px-4 py-3 tabular-nums ${isVoided ? 'text-gray-400' : 'text-gray-600'}`}>
-                  {r.time}
-                </td>
-                <td className={`px-4 py-3 font-mono ${isVoided ? 'text-gray-400' : 'text-gray-900'}`}>
-                  {r.billNo}
-                </td>
-                <td className={`px-4 py-3 max-w-[250px] truncate ${isVoided ? 'text-gray-400 italic' : 'text-gray-700'}`}>
-                  {r.items}
-                </td>
-                <td className={`px-4 py-3 text-center tabular-nums ${isVoided ? 'text-gray-400' : 'font-medium'}`}>
-                  {r.totalQty}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-tight ${badgeClass}`}>
-                    {isVoided ? 'VOIDED' : r.payment}
-                  </span>
-                </td>
-                <td className={`px-4 py-3 text-right font-bold tabular-nums ${isVoided ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
-                  {Number(r.total).toFixed(2)}
-                </td>
-                <td className={`px-4 py-3 max-w-[200px] truncate ${isVoided ? 'text-gray-300' : 'text-orange-600 text-xs'}`}>
-                  {r.freebies || '-'}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {isVoided ? (
-                    <span className="text-[10px] text-gray-400 uppercase font-bold italic">Voided</span>
-                  ) : (
-                    <button 
-                      onClick={() => handleVoid(r.billNo, r.location)} 
-                      className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded-lg transition-colors group"
-                      title="Void Bill"
-                    >
-                      <Trash2 size={16} className="group-active:scale-90 transition-transform" />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            );
-          })
         )}
-      </tbody>
-    </table>
-  </div>
-</div>
+
+        {/* TABLE SECTION */}
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr className="text-left text-gray-500 uppercase text-[10px] tracking-wider">
+                  <th className="px-4 py-3">Time</th>
+                  <th className="px-4 py-3">Bill</th>
+                  <th className="px-4 py-3">Items</th>
+                  <th className="px-4 py-3 text-center">Qty</th>
+                  <th className="px-4 py-3">Payment</th>
+                  <th className="px-4 py-3 text-right">Total</th>
+                  <th className="px-4 py-3">Freebies</th>
+                  <th className="px-4 py-3 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rows.length === 0 ? (
+                  <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-500">{loading ? 'Loading...' : 'No records found.'}</td></tr>
+                ) : (
+                  rows.map((r, idx) => {
+                    const isVoided = r.status === 'VOIDED';
+                    const pay = (r.payment || '').toLowerCase();
+                    let badgeClass = "bg-blue-100 text-blue-700";
+                    if (isVoided) badgeClass = "bg-gray-200 text-gray-500";
+                    else if (pay === 'cash') badgeClass = "bg-orange-100 text-orange-900";
+                    else if (pay === 'lineman') badgeClass = "bg-emerald-100 text-emerald-700";
+
+                    return (
+                      <tr key={idx} className={`transition-colors ${isVoided ? 'bg-gray-50/80' : 'hover:bg-gray-50/50'}`}>
+                        <td className={`px-4 py-3 tabular-nums ${isVoided ? 'text-gray-400' : 'text-gray-600'}`}>{r.time}</td>
+                        <td className={`px-4 py-3 font-mono ${isVoided ? 'text-gray-400' : 'text-gray-900'}`}>{r.billNo}</td>
+                        <td className={`px-4 py-3 truncate max-w-[250px] ${isVoided ? 'text-gray-400 italic' : 'text-gray-700'}`}>{r.items}</td>
+                        <td className={`px-4 py-3 text-center ${isVoided ? 'text-gray-400' : 'font-medium'}`}>{r.totalQty}</td>
+                        <td className="px-4 py-3 text-center"><span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${badgeClass}`}>{isVoided ? 'VOIDED' : r.payment}</span></td>
+                        <td className={`px-4 py-3 text-right font-bold ${isVoided ? 'text-gray-400 line-through' : ''}`}>{Number(r.total).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-xs text-orange-600">{r.freebies || '-'}</td>
+                        <td className="px-4 py-3 text-center">{isVoided ? <span className="text-gray-400 italic text-[10px]">Voided</span> : <button onClick={() => handleVoid(r.billNo, r.location)} className="text-red-500 hover:text-red-700"><Trash2 size={16} /></button>}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }

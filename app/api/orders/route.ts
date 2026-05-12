@@ -85,12 +85,15 @@ export async function GET(req: Request) {
         range: `${a1Sheet(title!)}!A:L`,
       });
 
-      const rows = res.data.values || [];
-      const dataRows = rows.slice(1); // Skip header
+const rows = res.data.values || [];
+const dataRows = rows.slice(1); // Skip header
 
-      const parsed = dataRows.map(r => ({
-        date: r[0],
-        time: r[1],
+const parsed = dataRows
+  .filter(r => r.length > 0 && r[0]) // <--- ADD THIS: Skip empty rows or rows without a date
+  .map(r => ({
+    date: r[0],
+    time: r[1],
+    // ... the 
         billNo: r[2],
         // --- The "Secret Sauce": Decoding your strings back into Arrays ---
 items: (r[3] || '').split('; ').filter(Boolean).map((s: string) => {

@@ -100,7 +100,7 @@ items: (r[3] || '').split('; ').filter(Boolean).map((s: string) => {
   const [name, qty] = s.split(' x');
           return { name, qty: parseInt(qty) || 0, price: 0 }; // Price isn't stored per item in history
         }),
-        freebies: (r[4] || '').split('; ').filter(Boolean).map(s => {
+        freebies: (r[4] || '').split('; ').filter(Boolean).map((s: string) => {
           const [name, qty] = s.split(' x');
           return { name, qty: parseInt(qty) || 0 };
         }),

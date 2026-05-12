@@ -98,25 +98,24 @@ export async function ensureSheetExists(sheets: any, spreadsheetId: string, titl
   // Ensure header with Status column at J
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${a1Sheet(title)}!A1:J1`,
+    range: `${a1Sheet(title)}!A1:M1`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
-      values: [['Date', 'Time', 'BillNo', 'Items', 'Freebies', 'TotalQty', 'Payment', 'Total', 'FreebiesAmount', 'Status']],
+      values: [['Date', 'Time', 'BillNo', 'Items', 'Freebies', 'TotalQty', 'Payment', 'Total', 'FreebiesAmount', 'Subtotal', 'Markup', 'Discount', 'Status']],
     },
   });
 }
 
-export async function ensureSheetExistsIdempotent(sheets: any, spreadsheetId: string, title: string, header?: string[]) {
-  try {
-    await ensureSheetExists(sheets, spreadsheetId, title);
-    if (header) {
-        await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${a1Sheet(title)}!1:1`,
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: [header] },
-        });
-    }
+export async function ensureSheetExists(sheets: any, spreadsheetId: string, title: string) {
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
+  const exists = (meta.data.sheets ?? []).some((s: any) => s.properties?.title === title);
+  
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+    });
+  }
   } catch (e) {
     // Ignore already exists errors
   }
@@ -124,18 +123,32 @@ export async function ensureSheetExistsIdempotent(sheets: any, spreadsheetId: st
 
 /** ---------- Data Fetching ---------- */
 export async function listLocationIds(sheets: any, spreadsheetId: string): Promise<string[]> {
-  const res = await sheets.spreadsheets.get({ spreadsheetId });
-  return (res.data.sheets || []).map((s: any) => s.properties.title).filter((t: string) => !['Products', 'Locations', 'Stocks'].includes(t));
+  try {
+    // Strategy: Fetch from the 'Locations' tab directly for the most accurate list
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Locations!A:A',
+    });
+    const rows = res.data.values || [];
+    return rows
+      .slice(1) // Skip header
+      .map(r => String(r[0] || '').trim().toUpperCase())
+      .filter(id => id.length > 0);
+  } catch (e) {
+    // Fallback: If 'Locations' tab doesn't exist, get all tabs except system ones
+    const res = await sheets.spreadsheets.get({ spreadsheetId });
+    return (res.data.sheets || [])
+      .map((s: any) => s.properties.title)
+      .filter((t: string) => !['Products', 'Locations', 'Stocks', 'Summary'].includes(t));
+  }
 }
 
-export async function fetchHistory(spreadsheetId: string, tabTitle: string, date: string): Promise<{ rows: HistoryRow[]; totals: Totals }> {
-  const rows = await fetchHistoryRange(spreadsheetId, tabTitle, date, date);
-  return { rows, totals: summarizeTotals(rows) };
-}
 
 export async function fetchHistoryRange(spreadsheetId: string, tabTitle: string, startDate: string, endDate: string): Promise<HistoryRow[]> {
   const auth = getAuth();
   const sheets = google.sheets({ version: 'v4', auth });
+  
+  // Ensure the sheet exists before we try to read it
   await ensureSheetExists(sheets, spreadsheetId, tabTitle);
 
   const res = await sheets.spreadsheets.values.get({
@@ -144,18 +157,22 @@ export async function fetchHistoryRange(spreadsheetId: string, tabTitle: string,
   });
 
   const rows = res.data.values || [];
-  return rows.slice(1).map((r: any[]) => ({
-    date: (r?.[0] ?? '').toString().trim(),
-    time: (r?.[1] ?? '').toString().trim(),
-    billNo: (r?.[2] ?? '').toString().trim(),
-    items: (r?.[3] ?? '').toString().trim(),
-    freebies: (r?.[4] ?? '').toString().trim(),
-    totalQty: parseNumberCell(r?.[5]),
-    payment: (r?.[6] ?? '').toString().trim(),
-    total: parseNumberCell(r?.[7]),
-    freebiesAmount: parseNumberCell(r?.[8]),
-    status: (r?.[12] ?? '').toString().trim(),
-  })).filter(r => r.date >= startDate && r.date <= endDate);
+  // Use a safer mapping that checks if the row exists
+  return rows.slice(1)
+    .filter(r => r && r.length >= 3) // Must have at least Date, Time, BillNo
+    .map((r: any[]) => ({
+      date: (r?.[0] ?? '').toString().trim(),
+      time: (r?.[1] ?? '').toString().trim(),
+      billNo: (r?.[2] ?? '').toString().trim(),
+      items: (r?.[3] ?? '').toString().trim(),
+      freebies: (r?.[4] ?? '').toString().trim(),
+      totalQty: parseNumberCell(r?.[5]),
+      payment: (r?.[6] ?? '').toString().trim(),
+      total: parseNumberCell(r?.[7]),
+      freebiesAmount: parseNumberCell(r?.[8]),
+      status: (r?.[12] ?? '').toString().trim() || 'ACTIVE', // Column M
+    }))
+    .filter(r => r.date >= startDate && r.date <= endDate);
 }
 
 /** ---------- Totals & Period Logic ---------- */

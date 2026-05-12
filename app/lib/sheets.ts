@@ -95,8 +95,8 @@ export async function ensureSheetExists(sheets: any, spreadsheetId: string, titl
     });
   }
 
-  // Ensure header with Status column at J
-   await sheets.spreadsheets.values.update({
+  // Header matching the full schema including Status at Column M
+  await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${a1Sheet(title)}!A1:M1`,
     valueInputOption: 'USER_ENTERED',
@@ -118,7 +118,6 @@ export async function ensureSheetExistsIdempotent(sheets: any, spreadsheetId: st
       });
     }
   } catch (e) {
-    // Ignore errors (e.g. sheet already exists or quota issues)
     console.warn(`Idempotent sheet check failed for ${title}:`, e);
   }
 }
@@ -138,12 +137,15 @@ export async function listLocationIds(sheets: any, spreadsheetId: string): Promi
   }
 }
 
+export async function fetchHistory(spreadsheetId: string, tabTitle: string, date: string): Promise<{ rows: HistoryRow[]; totals: Totals }> {
+  const rows = await fetchHistoryRange(spreadsheetId, tabTitle, date, date);
+  return { rows, totals: summarizeTotals(rows) };
+}
 
 export async function fetchHistoryRange(spreadsheetId: string, tabTitle: string, startDate: string, endDate: string): Promise<HistoryRow[]> {
   const auth = getAuth();
   const sheets = google.sheets({ version: 'v4', auth });
   
-  // Ensure the sheet exists before we try to read it
   await ensureSheetExists(sheets, spreadsheetId, tabTitle);
 
   const res = await sheets.spreadsheets.values.get({
@@ -151,15 +153,9 @@ export async function fetchHistoryRange(spreadsheetId: string, tabTitle: string,
     range: `${a1Sheet(tabTitle)}!A:M`,
   });
 
-  export async function fetchHistory(spreadsheetId: string, tabTitle: string, date: string): Promise<{ rows: HistoryRow[]; totals: Totals }> {
-  const rows = await fetchHistoryRange(spreadsheetId, tabTitle, date, date);
-  return { rows, totals: summarizeTotals(rows) };
-}
-  
   const rows = res.data.values || [];
-  // Use a safer mapping that checks if the row exists
   return rows.slice(1)
-    .filter(r => r && r.length >= 3) // Must have at least Date, Time, BillNo
+    .filter(r => r && r.length >= 3)
     .map((r: any[]) => ({
       date: (r?.[0] ?? '').toString().trim(),
       time: (r?.[1] ?? '').toString().trim(),
@@ -170,7 +166,7 @@ export async function fetchHistoryRange(spreadsheetId: string, tabTitle: string,
       payment: (r?.[6] ?? '').toString().trim(),
       total: parseNumberCell(r?.[7]),
       freebiesAmount: parseNumberCell(r?.[8]),
-      status: (r?.[12] ?? '').toString().trim() || 'ACTIVE', // Column M
+      status: (r?.[12] ?? '').toString().trim() || 'ACTIVE',
     }))
     .filter(r => r.date >= startDate && r.date <= endDate);
 }

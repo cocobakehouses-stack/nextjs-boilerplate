@@ -54,17 +54,26 @@ export async function GET(req: Request) {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    await ensureProductsSheetExists(sheets, spreadsheetId);
-
-    const { searchParams } = new URL(req.url);
-    const p = (searchParams.get('activeOnly') ?? '').toLowerCase();
-    const activeOnly = p ? !['0', 'false', 'no', 'off'].includes(p) : true;
-
-    // Fetch A to E (ID, Name, Price, Category, Active)
+    // Ensure we fetch A:E to include the Category (D) and Active (E)
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${PRODUCTS_TAB}!A:E`,
+      range: `Products!A:E`,
     });
+
+    const rows = res.data.values || [];
+    const products = rows.slice(1).map((r) => ({
+      id: Number(r[0]),
+      name: (r[1] || '').toString(),
+      price: Number(r[2]),
+      category: (r[3] || 'General').toString().trim(), // Column D
+      active: (r[4] || 'TRUE').toString().toUpperCase() === 'TRUE', // Column E
+    })).filter(p => !isNaN(p.id) && p.active); // Only return active for POS
+
+    return NextResponse.json({ products });
+  } catch (e) {
+    return NextResponse.json({ error: 'failed' }, { status: 500 });
+  }
+}
 
     const rows = (res.data.values || []).slice(1);
     const products = rows.map((r) => {

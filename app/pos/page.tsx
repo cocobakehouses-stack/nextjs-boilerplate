@@ -57,7 +57,7 @@ export default function POSPage() {
   const [step, setStep] = useState<Step>('cart');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [freebies, setFreebies] = useState<FreebieItem[]>([]);
-  const [payment, setPayment] = useState<'cash' | 'promptpay' | 'lineman' | null>(null);
+const [payment, setPayment] = useState<'cash' | 'promptpay' | 'lineman' | 'credit' | null>(null);
   const [discount, setDiscount] = useState<number>(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -263,18 +263,20 @@ export default function POSPage() {
                   <span className="text-3xl font-black text-[#ac0000]">{grandTotal.toFixed(2)} ฿</span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  {['cash', 'promptpay', 'lineman'].map(m => (
-                    <button 
-                      key={m} 
-                      onClick={() => setPayment(m as any)}
-                      className={`py-3 rounded-xl border-2 font-black uppercase text-[9px] transition-all
-                        ${payment === m ? 'bg-black border-black text-white shadow-lg' : 'bg-gray-50 border-transparent text-gray-300'}`}
-                    >
-                      {m}
-                    </button>
-                  ))}
-                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+  {['cash', 'promptpay', 'lineman', 'credit'].map(m => (
+    <button 
+      key={m} 
+      onClick={() => setPayment(m as any)}
+      className={`py-3 rounded-xl border-2 font-black uppercase text-[9px] transition-all
+        ${payment === m 
+          ? 'bg-black border-black text-white shadow-lg' 
+          : 'bg-gray-50 border-transparent text-gray-300'}`}
+    >
+      {m === 'credit' ? 'Card' : m}
+    </button>
+  ))}
+</div>
 
                 <button 
                   onClick={saveBill}

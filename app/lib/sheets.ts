@@ -96,7 +96,7 @@ export async function ensureSheetExists(sheets: any, spreadsheetId: string, titl
   }
 
   // Ensure header with Status column at J
-  await sheets.spreadsheets.values.update({
+   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${a1Sheet(title)}!A1:M1`,
     valueInputOption: 'USER_ENTERED',
@@ -106,18 +106,20 @@ export async function ensureSheetExists(sheets: any, spreadsheetId: string, titl
   });
 }
 
-export async function ensureSheetExists(sheets: any, spreadsheetId: string, title: string) {
-  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
-  const exists = (meta.data.sheets ?? []).some((s: any) => s.properties?.title === title);
-  
-  if (!exists) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
-    });
-  }
+export async function ensureSheetExistsIdempotent(sheets: any, spreadsheetId: string, title: string, header?: string[]) {
+  try {
+    await ensureSheetExists(sheets, spreadsheetId, title);
+    if (header) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${a1Sheet(title)}!1:1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [header] },
+      });
+    }
   } catch (e) {
-    // Ignore already exists errors
+    // Ignore errors (e.g. sheet already exists or quota issues)
+    console.warn(`Idempotent sheet check failed for ${title}:`, e);
   }
 }
 

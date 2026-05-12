@@ -64,6 +64,63 @@ async function getNextBillNoForDate(sheets: any, spreadsheetId: string, title: s
   }
   return pad2(maxNo + 1);
 }
+export async function GET(req: Request) {
+  try {
+    const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
+    const auth = getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // 1. Get all sheet names (locations)
+    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    const titles = (meta.data.sheets || [])
+      .map(s => s.properties?.title)
+      .filter(t => t && t !== 'Products' && t !== 'Summary');
+
+    let allOrders: any[] = [];
+
+    // 2. Fetch data from each location tab
+    for (const title of titles) {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${a1Sheet(title!)}!A:L`,
+      });
+
+      const rows = res.data.values || [];
+      const dataRows = rows.slice(1); // Skip header
+
+      const parsed = dataRows.map(r => ({
+        date: r[0],
+        time: r[1],
+        billNo: r[2],
+        // --- The "Secret Sauce": Decoding your strings back into Arrays ---
+        items: (r[3] || '').split('; ').filter(Boolean).map(s => {
+          const [name, qty] = s.split(' x');
+          return { name, qty: parseInt(qty) || 0, price: 0 }; // Price isn't stored per item in history
+        }),
+        freebies: (r[4] || '').split('; ').filter(Boolean).map(s => {
+          const [name, qty] = s.split(' x');
+          return { name, qty: parseInt(qty) || 0 };
+        }),
+        location: title,
+        payment: r[6],
+        total: parseFloat(r[7]) || 0,
+      }));
+
+      allOrders = [...allOrders, ...parsed];
+    }
+
+    // Sort by date and time descending (Newest first)
+    allOrders.sort((a, b) => {
+      const dtA = new Date(`${a.date}T${a.time}`);
+      const dtB = new Date(`${b.date}T${b.time}`);
+      return dtB.getTime() - dtA.getTime();
+    });
+
+    return NextResponse.json({ orders: allOrders });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
 
 export async function POST(req: Request) {
   try {

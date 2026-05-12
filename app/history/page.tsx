@@ -97,8 +97,10 @@ export default function HistoryPage() {
   // Reload when filters change
   useEffect(() => { fetchHistory(); }, [location, date]);
 
-  const activeRows = useMemo(() => rows.filter(r => r.status !== 'VOIDED'), [rows]);
-
+const activeRows = useMemo(() => {
+  return rows.filter(r => r.status !== 'VOIDED');
+}, [rows]);
+  
   // 4. Summarization Logic
   function reduceTotals(all: HistoryRow[]) {
     const count = all.length;
@@ -116,12 +118,13 @@ export default function HistoryPage() {
     return { count, soldQty, freebiesQty, totalAmount, freebiesAmount, byPayment };
   }
 
-  const computedTotals = useMemo(() => reduceTotals(activeRows), [activeRows]);
+const computedTotals = useMemo(() => reduceTotals(activeRows), [activeRows]);
 
   const { productSummaryNonLineman, productSummaryLineman, freebieSummary } = useMemo(() => {
     const nonL: Record<string, { qty: number; amount: number }> = {};
     const lm: Record<string, { qty: number; amount: number }> = {};
     const free: Record<string, { qty: number; amount: number }> = {};
+    }, [activeRows]);
 
     const addItems = (bucket: any, itemsStr: string) => {
       const { map } = parseNameQtyList(itemsStr);

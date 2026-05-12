@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
-import { Edit2, Save, X, Trash2, Plus, Power, PowerOff } from 'lucide-react';
+import { Edit2, Save, X, Plus, Power, PowerOff } from 'lucide-react';
 
 /* ========== Types ========== */
 type Product = {
@@ -62,33 +62,50 @@ export default function ProductsManagerPage() {
     setEditingId(null);
   };
 
-async function handleSaveEdit(id: number) {
-  if (!editName || !editPrice) return alert("Please fill Name and Price");
-  setIsSubmitting(true);
-  try {
-    const res = await fetch(`/api/products/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: editName,
-        price: Number(editPrice),
-        category: editCategory,
-        active: editActive,
-      }),
-    });
-
-    if (res.ok) {
-      setEditingId(null);
-      await loadProducts();
-    } else {
-      alert("Failed to save changes");
+  // 1. Toggle stays fast using PATCH
+  async function toggleStatus(p: Product) {
+    try {
+      const res = await fetch(`/api/products/${p.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !p.active }),
+      });
+      if (res.ok) {
+        await loadProducts();
+      }
+    } catch (e) {
+      alert("Failed to toggle status");
     }
-  } catch (e) {
-    alert("Error updating product");
-  } finally {
-    setIsSubmitting(false);
   }
-}
+
+  // 2. Save button uses PUT for full update (Name, Price, Category)
+  async function handleSaveEdit(id: number) {
+    if (!editName || !editPrice) return alert("Please fill in Name and Price");
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`/api/products/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editName,
+          price: Number(editPrice),
+          category: editCategory,
+          active: editActive,
+        }),
+      });
+
+      if (res.ok) {
+        setEditingId(null);
+        await loadProducts();
+      } else {
+        alert("Failed to save changes");
+      }
+    } catch (e) {
+      alert("Error updating product");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   async function handleAddProduct() {
     if (!newName || !newPrice) return alert("Please fill in Name and Price");
@@ -119,18 +136,6 @@ async function handleSaveEdit(id: number) {
     }
   }
 
-async function toggleStatus(p: Product) {
-  try {
-    const res = await fetch(`/api/products/${p.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active: !p.active }),
-    });
-    if (res.ok) await loadProducts();
-  } catch (e) {
-    alert("Failed to toggle status");
-
-  /* ========== Render ========== */
   return (
     <main className="min-h-screen bg-gray-50 pb-20">
       <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
@@ -153,7 +158,7 @@ async function toggleStatus(p: Product) {
 
         {/* ADD PRODUCT FORM */}
         {showAddForm && (
-          <div className="bg-white border-2 border-blue-100 rounded-xl p-6 mb-8 shadow-sm animate-in fade-in slide-in-from-top-4">
+          <div className="bg-white border-2 border-blue-100 rounded-xl p-6 mb-8 shadow-sm">
             <h2 className="font-semibold mb-4 text-blue-800">New Product Details</h2>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <input
@@ -195,7 +200,7 @@ async function toggleStatus(p: Product) {
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-50 border-b text-gray-500 uppercase text-[10px] tracking-wider">
               <tr>
-                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 text-center">Status</th>
                 <th className="px-6 py-4">Name</th>
                 <th className="px-6 py-4">Category</th>
                 <th className="px-6 py-4">Price</th>
@@ -210,14 +215,14 @@ async function toggleStatus(p: Product) {
                   const isEditing = editingId === p.id;
                   return (
                     <tr key={p.id} className={`${!p.active ? 'bg-gray-50' : ''} hover:bg-gray-50/50 transition-colors`}>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-4 text-center">
                         <button onClick={() => toggleStatus(p)} className="focus:outline-none">
                           {p.active ? (
-                            <span className="flex items-center gap-1 text-green-600 font-bold">
+                            <span className="flex items-center gap-1 text-green-600 font-bold justify-center">
                               <Power size={14} /> Active
                             </span>
                           ) : (
-                            <span className="flex items-center gap-1 text-gray-400 font-bold">
+                            <span className="flex items-center gap-1 text-gray-400 font-bold justify-center">
                               <PowerOff size={14} /> Hidden
                             </span>
                           )}
@@ -244,7 +249,7 @@ async function toggleStatus(p: Product) {
                             className="border rounded px-2 py-1 w-full"
                           />
                         ) : (
-                          p.category
+                          p.category || '-'
                         )}
                       </td>
 
@@ -254,10 +259,10 @@ async function toggleStatus(p: Product) {
                             type="number"
                             value={editPrice}
                             onChange={(e) => setEditPrice(e.target.value)}
-                            className="border rounded px-2 py-1 w-40"
+                            className="border rounded px-2 py-1 w-24"
                           />
                         ) : (
-                          <span className="font-bold">{p.price.toFixed(2)} ฿</span>
+                          <span className="font-bold">{Number(p.price).toFixed(2)} ฿</span>
                         )}
                       </td>
 

@@ -151,6 +151,11 @@ export async function fetchHistoryRange(spreadsheetId: string, tabTitle: string,
     range: `${a1Sheet(tabTitle)}!A:M`,
   });
 
+  export async function fetchHistory(spreadsheetId: string, tabTitle: string, date: string): Promise<{ rows: HistoryRow[]; totals: Totals }> {
+  const rows = await fetchHistoryRange(spreadsheetId, tabTitle, date, date);
+  return { rows, totals: summarizeTotals(rows) };
+}
+  
   const rows = res.data.values || [];
   // Use a safer mapping that checks if the row exists
   return rows.slice(1)

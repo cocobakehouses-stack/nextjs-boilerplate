@@ -129,11 +129,16 @@ export async function listLocationIds(sheets: any, spreadsheetId: string): Promi
       spreadsheetId,
       range: 'Locations!A:A',
     });
-    const rows = res.data.values || [];
-    return rows.slice(1).map(r => String(r[0] || '').trim().toUpperCase()).filter(id => id.length > 0);
+    const rows = (res.data.values || []) as any[][]; // Cast to 2D array
+    return rows
+      .slice(1)
+      .map((r: any[]) => String(r[0] || '').trim().toUpperCase()) // Added (r: any[])
+      .filter((id: string) => id.length > 0);
   } catch (e) {
     const res = await sheets.spreadsheets.get({ spreadsheetId });
-    return (res.data.sheets || []).map((s: any) => s.properties.title).filter((t: string) => !['Products', 'Locations', 'Stocks', 'Summary'].includes(t));
+    return (res.data.sheets || [])
+      .map((s: any) => s.properties.title)
+      .filter((t: string) => t && !['Products', 'Locations', 'Stocks', 'Summary'].includes(t));
   }
 }
 

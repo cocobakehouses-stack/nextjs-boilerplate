@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
-import { Edit2, Save, X, Plus, Power, PowerOff, Package } from 'lucide-react';
+import { Edit2, Save, X, Plus, Power, PowerOff, Package, Trash2 } from 'lucide-react';
 
 /* ========== Types ========== */
 type Product = {

@@ -93,8 +93,8 @@ export async function GET(req: Request) {
         time: r[1],
         billNo: r[2],
         // --- The "Secret Sauce": Decoding your strings back into Arrays ---
-        items: (r[3] || '').split('; ').filter(Boolean).map(s => {
-          const [name, qty] = s.split(' x');
+items: (r[3] || '').split('; ').filter(Boolean).map((s: string) => {
+  const [name, qty] = s.split(' x');
           return { name, qty: parseInt(qty) || 0, price: 0 }; // Price isn't stored per item in history
         }),
         freebies: (r[4] || '').split('; ').filter(Boolean).map(s => {

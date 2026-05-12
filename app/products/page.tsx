@@ -70,7 +70,16 @@ export default function ProductsManagerPage() {
       if (res.ok) { setEditingId(null); await loadProducts(); }
     } catch (e) { alert("Save failed"); } finally { setIsSubmitting(false); }
   }
-
+      
+async function handleDelete(id: number) {
+  if (!confirm("Are you SURE? This will permanently remove this product from the database.")) return;
+  
+  try {
+    const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+    if (res.ok) await loadProducts();
+    else alert("Delete failed");
+  } catch (e) { alert("Error deleting"); }
+}
   return (
     <main className="min-h-screen bg-white pb-20">
       <div className="sticky top-0 z-50 border-b bg-white/90 backdrop-blur-md">
@@ -126,20 +135,30 @@ export default function ProductsManagerPage() {
             return (
               <div key={p.id} className={`p-4 rounded-3xl border-2 transition-all ${p.active ? 'border-gray-100 bg-white' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
                 {isEditing ? (
-                  <div className="space-y-3">
-                    <input 
-                      value={editName} onChange={e => setEditName(e.target.value)}
-                      className="w-full p-3 bg-gray-100 rounded-xl text-base font-bold outline-none border-2 border-black"
-                    />
-                    <div className="flex gap-2">
-                      <input 
-                        type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)}
-                        className="flex-1 p-3 bg-gray-100 rounded-xl text-base outline-none"
-                      />
-                      <button onClick={() => handleSaveEdit(p.id)} className="bg-black text-white px-6 rounded-xl font-bold">SAVE</button>
-                      <button onClick={() => setEditingId(null)} className="bg-gray-200 p-3 rounded-xl"><X size={20}/></button>
-                    </div>
-                  </div>
+  <div className="space-y-3">
+    <input 
+      value={editName} onChange={e => setEditName(e.target.value)}
+      className="w-full p-3 bg-gray-100 rounded-xl text-base font-bold outline-none border-2 border-black"
+      placeholder="Name"
+    />
+    <div className="grid grid-cols-2 gap-2">
+      <input 
+        type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)}
+        className="p-3 bg-gray-100 rounded-xl text-base outline-none"
+        placeholder="Price"
+      />
+      <input 
+        value={editCategory} onChange={e => setEditCategory(e.target.value)}
+        className="p-3 bg-gray-100 rounded-xl text-base outline-none"
+        placeholder="Category"
+      />
+    </div>
+    <div className="flex gap-2">
+      <button onClick={() => handleSaveEdit(p.id)} className="flex-1 bg-black text-white py-3 rounded-xl font-bold">SAVE CHANGES</button>
+      <button onClick={() => handleDelete(p.id)} className="bg-red-100 text-red-600 px-4 rounded-xl"><Trash2 size={20}/></button>
+      <button onClick={() => setEditingId(null)} className="bg-gray-200 px-4 rounded-xl"><X size={20}/></button>
+    </div>
+  </div>
                 ) : (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">

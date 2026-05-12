@@ -36,7 +36,13 @@ export async function GET(req: Request) {
         { headers: { 'Cache-Control': 'no-store' } },
       );
     }
-
+const parsed = dataRows.map(r => ({
+  date: r[0],
+  time: r[1],
+  billNo: r[2],
+  // ... other fields
+  status: r[12] || 'ACTIVE', // Read Column M
+}));
     // เคส ALL: รวมทุกสาขา
     const results = await Promise.all(
       validIds.map(async (loc) => {

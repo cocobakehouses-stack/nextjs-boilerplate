@@ -37,12 +37,18 @@ export default function HistoryPage() {
 
   // Filter logic
   const filteredOrders = useMemo(() => {
-    return orders.filter(o => 
-      o.billNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.location.toLowerCase().includes(searchTerm.toLowerCase())
+  return orders.filter(o => {
+    // Check if o, o.billNo, and o.location actually exist before using them
+    const billNo = o?.billNo || ""; 
+    const location = o?.location || "";
+    
+    return (
+      billNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      location.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [orders, searchTerm]);
-
+  });
+}, [orders, searchTerm]);
+  
   // FREEBIE SUMMARY LOGIC
   const freebieSummary = useMemo(() => {
     const summary: Record<string, number> = {};

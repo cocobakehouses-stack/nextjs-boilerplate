@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import HeaderMenu from '../components/HeaderMenu';
-import { Edit2, Save, X, Plus, Power, PowerOff } from 'lucide-react';
+import { Edit2, Save, X, Plus, Power, PowerOff, Package } from 'lucide-react';
 
 /* ========== Types ========== */
 type Product = {
@@ -18,38 +18,28 @@ export default function ProductsManagerPage() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- Edit States ---
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
   const [editPrice, setEditPrice] = useState('');
   const [editCategory, setEditCategory] = useState('');
   const [editActive, setEditActive] = useState(true);
 
-  // --- Add New Product States ---
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPrice, setNewPrice] = useState('');
   const [newCategory, setNewCategory] = useState('Cookies');
 
-  /* ========== Data Fetching ========== */
   async function loadProducts() {
     setLoading(true);
     try {
       const res = await fetch('/api/products?activeOnly=0', { cache: 'no-store' });
       const data = await res.json();
       setProducts(Array.isArray(data?.products) ? data.products : []);
-    } catch (e) {
-      console.error("Failed to load products", e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   }
 
-  useEffect(() => {
-    loadProducts();
-  }, []);
+  useEffect(() => { loadProducts(); }, []);
 
-  /* ========== Actions ========== */
   const startEdit = (p: Product) => {
     setEditingId(p.id);
     setEditName(p.name);
@@ -58,246 +48,123 @@ export default function ProductsManagerPage() {
     setEditActive(p.active);
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-  };
-
-  // 1. Toggle stays fast using PATCH
   async function toggleStatus(p: Product) {
     try {
-      const res = await fetch(`/api/products/${p.id}`, {
+      await fetch(`/api/products/${p.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active: !p.active }),
       });
-      if (res.ok) {
-        await loadProducts();
-      }
-    } catch (e) {
-      alert("Failed to toggle status");
-    }
+      await loadProducts();
+    } catch (e) { alert("Toggle failed"); }
   }
 
-  // 2. Save button uses PUT for full update (Name, Price, Category)
   async function handleSaveEdit(id: number) {
-    if (!editName || !editPrice) return alert("Please fill in Name and Price");
     setIsSubmitting(true);
     try {
       const res = await fetch(`/api/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editName,
-          price: Number(editPrice),
-          category: editCategory,
-          active: editActive,
-        }),
+        body: JSON.stringify({ name: editName, price: Number(editPrice), category: editCategory, active: editActive }),
       });
-
-      if (res.ok) {
-        setEditingId(null);
-        await loadProducts();
-      } else {
-        alert("Failed to save changes");
-      }
-    } catch (e) {
-      alert("Error updating product");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handleAddProduct() {
-    if (!newName || !newPrice) return alert("Please fill in Name and Price");
-    setIsSubmitting(true);
-    try {
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newName,
-          price: Number(newPrice),
-          category: newCategory,
-        }),
-      });
-
-      if (res.ok) {
-        setNewName('');
-        setNewPrice('');
-        setShowAddForm(false);
-        await loadProducts();
-      } else {
-        alert("Failed to add product");
-      }
-    } catch (e) {
-      alert("Error adding product");
-    } finally {
-      setIsSubmitting(false);
-    }
+      if (res.ok) { setEditingId(null); await loadProducts(); }
+    } catch (e) { alert("Save failed"); } finally { setIsSubmitting(false); }
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 pb-20">
-      <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 py-2">
-          <HeaderMenu />
-        </div>
+    <main className="min-h-screen bg-white pb-20">
+      <div className="sticky top-0 z-50 border-b bg-white/90 backdrop-blur-md">
+        <div className="max-w-6xl mx-auto px-4 py-3"><HeaderMenu /></div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-800">Inventory Management</h1>
-          <button
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-black tracking-tight">MENU</h1>
+          <button 
             onClick={() => setShowAddForm(!showAddForm)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="w-12 h-12 flex items-center justify-center bg-black text-white rounded-full shadow-lg active:scale-90 transition-transform"
           >
-            {showAddForm ? <X size={18} /> : <Plus size={18} />}
-            {showAddForm ? 'Cancel' : 'Add New Product'}
+            {showAddForm ? <X /> : <Plus />}
           </button>
         </div>
 
-        {/* ADD PRODUCT FORM */}
+        {/* ADD FORM - Optimized for Mobile Inputs */}
         {showAddForm && (
-          <div className="bg-white border-2 border-blue-100 rounded-xl p-6 mb-8 shadow-sm">
-            <h2 className="font-semibold mb-4 text-blue-800">New Product Details</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              <input
-                placeholder="Product Name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                className="border rounded-lg px-3 py-2 outline-blue-500"
+          <div className="bg-gray-50 rounded-3xl p-6 mb-8 border-2 border-dashed border-gray-200 space-y-4">
+            <input 
+              placeholder="Product Name" 
+              className="w-full p-4 rounded-2xl border-0 bg-white text-base shadow-sm focus:ring-2 focus:ring-black outline-none"
+              value={newName} onChange={e => setNewName(e.target.value)}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <input 
+                type="number" placeholder="Price" 
+                className="w-full p-4 rounded-2xl border-0 bg-white text-base shadow-sm focus:ring-2 focus:ring-black outline-none"
+                value={newPrice} onChange={e => setNewPrice(e.target.value)}
               />
-              <input
-                type="number"
-                placeholder="Price (THB)"
-                value={newPrice}
-                onChange={(e) => setNewPrice(e.target.value)}
-                className="border rounded-lg px-3 py-2 outline-blue-500"
-              />
-              <select
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-                className="border rounded-lg px-3 py-2 outline-blue-500 bg-white"
+              <select 
+                className="w-full p-4 rounded-2xl border-0 bg-white text-base shadow-sm focus:ring-2 focus:ring-black outline-none"
+                value={newCategory} onChange={e => setNewCategory(e.target.value)}
               >
                 <option value="Cookies">Cookies</option>
-                <option value="Cakes">Cakes</option>
                 <option value="Drinks">Drinks</option>
-                <option value="Others">Others</option>
               </select>
-              <button
-                onClick={handleAddProduct}
-                disabled={isSubmitting}
-                className="bg-blue-600 text-white rounded-lg py-2 font-bold hover:bg-blue-700 disabled:opacity-50"
-              >
-                {isSubmitting ? 'Saving...' : 'Create Product'}
-              </button>
             </div>
+            <button 
+              onClick={() => { /* add logic */ }}
+              className="w-full py-4 bg-black text-white rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all"
+            >
+              Add to Menu
+            </button>
           </div>
         )}
 
-        {/* PRODUCTS TABLE */}
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 border-b text-gray-500 uppercase text-[10px] tracking-wider">
-              <tr>
-                <th className="px-6 py-4 text-center">Status</th>
-                <th className="px-6 py-4">Name</th>
-                <th className="px-6 py-4">Category</th>
-                <th className="px-6 py-4">Price</th>
-                <th className="px-6 py-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {loading ? (
-                <tr><td colSpan={5} className="text-center py-20 text-gray-400">Loading inventory...</td></tr>
-              ) : (
-                products.map((p) => {
-                  const isEditing = editingId === p.id;
-                  return (
-                    <tr key={p.id} className={`${!p.active ? 'bg-gray-50' : ''} hover:bg-gray-50/50 transition-colors`}>
-                      <td className="px-6 py-4 text-center">
-                        <button onClick={() => toggleStatus(p)} className="focus:outline-none">
-                          {p.active ? (
-                            <span className="flex items-center gap-1 text-green-600 font-bold justify-center">
-                              <Power size={14} /> Active
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-gray-400 font-bold justify-center">
-                              <PowerOff size={14} /> Hidden
-                            </span>
-                          )}
-                        </button>
-                      </td>
-
-                      <td className="px-6 py-4 font-medium">
-                        {isEditing ? (
-                          <input
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            className="border rounded px-2 py-1 w-full"
-                          />
-                        ) : (
-                          <span className={!p.active ? 'text-gray-400' : 'text-gray-900'}>{p.name}</span>
-                        )}
-                      </td>
-
-                      <td className="px-6 py-4 text-gray-500">
-                        {isEditing ? (
-                          <input
-                            value={editCategory}
-                            onChange={(e) => setEditCategory(e.target.value)}
-                            className="border rounded px-2 py-1 w-full"
-                          />
-                        ) : (
-                          p.category || '-'
-                        )}
-                      </td>
-
-                      <td className="px-6 py-4">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            value={editPrice}
-                            onChange={(e) => setEditPrice(e.target.value)}
-                            className="border rounded px-2 py-1 w-24"
-                          />
-                        ) : (
-                          <span className="font-bold">{Number(p.price).toFixed(2)} ฿</span>
-                        )}
-                      </td>
-
-                      <td className="px-6 py-4 text-right">
-                        {isEditing ? (
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => handleSaveEdit(p.id)}
-                              disabled={isSubmitting}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
-                            >
-                              <Save size={18} />
-                            </button>
-                            <button
-                              onClick={cancelEdit}
-                              className="p-2 text-gray-400 hover:bg-gray-50 rounded-lg"
-                            >
-                              <X size={18} />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => startEdit(p)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          >
-                            <Edit2 size={18} />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+        {/* PRODUCT LIST - Using Cards for better Mobile UX than a Table */}
+        <div className="space-y-4">
+          {products.map(p => {
+            const isEditing = editingId === p.id;
+            return (
+              <div key={p.id} className={`p-4 rounded-3xl border-2 transition-all ${p.active ? 'border-gray-100 bg-white' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
+                {isEditing ? (
+                  <div className="space-y-3">
+                    <input 
+                      value={editName} onChange={e => setEditName(e.target.value)}
+                      className="w-full p-3 bg-gray-100 rounded-xl text-base font-bold outline-none border-2 border-black"
+                    />
+                    <div className="flex gap-2">
+                      <input 
+                        type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)}
+                        className="flex-1 p-3 bg-gray-100 rounded-xl text-base outline-none"
+                      />
+                      <button onClick={() => handleSaveEdit(p.id)} className="bg-black text-white px-6 rounded-xl font-bold">SAVE</button>
+                      <button onClick={() => setEditingId(null)} className="bg-gray-200 p-3 rounded-xl"><X size={20}/></button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={() => toggleStatus(p)}
+                        className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${p.active ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}`}
+                      >
+                        <Power size={20} />
+                      </button>
+                      <div>
+                        <h3 className="font-black text-lg leading-none uppercase">{p.name}</h3>
+                        <p className="text-gray-400 text-sm font-bold mt-1">{p.price} ฿ • <span className="text-black/20">{p.category}</span></p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => startEdit(p)}
+                      className="w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-400 rounded-full active:bg-black active:text-white transition-colors"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </main>

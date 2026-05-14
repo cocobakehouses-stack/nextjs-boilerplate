@@ -194,23 +194,26 @@ export default function HistoryPage() {
           </a>
         </header>
 
-        {/* SUMMARY METRICS */}
-        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white border-4 border-black p-6 rounded-[2rem] shadow-[4px_4px_0px_rgba(0,0,0,1)] text-center">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Bills</p>
-            <p className="text-3xl font-black">{computedTotals.count}</p>
+                 {/* SUMMARY METRICS - COMPACT VERSION */}
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-white border-2 border-black p-3 rounded-2xl shadow-[3px_3px_0px_rgba(0,0,0,1)] text-center">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-tighter">Total Bills</p>
+            <p className="text-xl font-black">{computedTotals.count}</p>
           </div>
-          <div className="bg-white border-4 border-black p-6 rounded-[2rem] shadow-[4px_4px_0px_rgba(0,0,0,1)] text-center">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Qty Sold</p>
-            <p className="text-3xl font-black">{computedTotals.soldQty} <span className="text-sm">pcs</span></p>
+          
+          <div className="bg-white border-2 border-black p-3 rounded-2xl shadow-[3px_3px_0px_rgba(0,0,0,1)] text-center">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-tighter">Qty Sold</p>
+            <p className="text-xl font-black">{computedTotals.soldQty} <span className="text-[10px]">pcs</span></p>
           </div>
-          <div className="bg-white border-4 border-black p-6 rounded-[2rem] shadow-[4px_4px_0px_rgba(0,0,0,1)] text-center">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Revenue</p>
-            <p className="text-3xl font-black text-[#ac0000]">{computedTotals.totalAmount.toLocaleString()} ฿</p>
+          
+          <div className="bg-white border-2 border-black p-3 rounded-2xl shadow-[3px_3px_0px_rgba(0,0,0,1)] text-center">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-tighter">Revenue</p>
+            <p className="text-xl font-black text-[#ac0000]">{computedTotals.totalAmount.toLocaleString()} ฿</p>
           </div>
-          <div className="bg-white border-4 border-black p-6 rounded-[2rem] shadow-[4px_4px_0px_rgba(0,0,0,1)] text-center">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Freebies</p>
-            <p className="text-3xl font-black text-orange-500">{computedTotals.freebiesQty}</p>
+          
+          <div className="bg-white border-2 border-black p-3 rounded-2xl shadow-[3px_3px_0px_rgba(0,0,0,1)] text-center">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-tighter">Freebies</p>
+            <p className="text-xl font-black text-orange-500">{computedTotals.freebiesQty}</p>
           </div>
         </section>
 
